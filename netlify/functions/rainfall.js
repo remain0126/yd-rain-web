@@ -1,60 +1,75 @@
 // netlify/functions/rainfall.js
-// 사용자 접속 시 호출. 저장소(Blobs) 없이도 동작하도록:
-//  1) 함수 인스턴스가 살아있으면 메모리 캐시를 즉시 반환 (같은 인스턴스 재사용 시 빠름)
-//  2) CDN 캐시(Cache-Control)로 접속자 대부분이 영덕군청 대기 없이 캐시본을 받음
-//  3) 영덕군청이 느리면 8초 타임아웃 후 직전 메모리 캐시라도 반환
+// 사용자 접속 시 호출.
+// 1) 저장소(Blobs)에 최신 스냅샷이 있으면 즉시 반환 -> 영덕군청 대기 없이 빠름
+// 2) 없거나 오래됐으면(또는 fresh=1) 직접 긁고 이력까지 갱신
+// 3) CDN 캐시로 다수 접속자를 커버
 
-const { scrape } = require("./_scrape");
+const { getStore } = require("@netlify/blobs");
+const { buildData } = require("./_build");
 
-let MEM = { data: null, at: 0 };
-const TTL = 5 * 60 * 1000; // 5분
+const SNAPSHOT_TTL_MS = 6 * 60 * 1000; // 6분 (스케줄 5분 + 여유)
 
-function headers(fromCache) {
+function headers(noStore) {
+  if (noStore) {
+    return {
+      "Content-Type": "application/json; charset=utf-8",
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "no-store",
+    };
+  }
   return {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
-    // 브라우저는 짧게(60s)만, Netlify CDN 엣지는 길게(5분) 캐시하고
-    // 만료 후 10분간은 옛 데이터를 즉시 주면서 뒤에서 갱신(durable=지역 간 공유 유지)
     "Cache-Control": "public, max-age=60",
     "Netlify-CDN-Cache-Control": "public, durable, s-maxage=300, stale-while-revalidate=600",
-    "X-From-Mem": fromCache ? "1" : "0",
   };
 }
 
 exports.handler = async function (event) {
-  const now = Date.now();
-  const forceFresh = event && event.queryStringParameters && event.queryStringParameters.fresh === "1";
+  const forceFresh =
+    event && event.queryStringParameters && event.queryStringParameters.fresh === "1";
 
-  // 1) 강제 새로고침이 아니고 신선한 메모리 캐시가 있으면 즉시
-  if (!forceFresh && MEM.data && now - MEM.at < TTL) {
-    return { statusCode: 200, headers: headers(true), body: JSON.stringify(MEM.data) };
+  const store = getStore("rainfall");
+
+  // 1) 저장된 스냅샷이 충분히 신선하면 즉시 반환
+  if (!forceFresh) {
+    try {
+      const snap = await store.get("latest", { type: "json" });
+      if (snap && snap.stored_at) {
+        const age = Date.now() - new Date(snap.stored_at).getTime();
+        if (age < SNAPSHOT_TTL_MS) {
+          return { statusCode: 200, headers: headers(false), body: JSON.stringify(snap) };
+        }
+      }
+    } catch (_) {
+      // 저장소 접근 실패 -> 아래에서 직접 긁기
+    }
   }
 
-  // 2) 새로 긁기
+  // 2) 직접 긁고 이력 갱신 + 스냅샷 저장
   try {
-    const data = await scrape();
-    MEM = { data, at: Date.now() };
-    // 강제 새로고침 응답은 CDN에 캐시하지 않음(항상 최신 반영)
-    const h = forceFresh
-      ? {
-          "Content-Type": "application/json; charset=utf-8",
-          "Access-Control-Allow-Origin": "*",
-          "Cache-Control": "no-store",
-        }
-      : headers(false);
-    return { statusCode: 200, headers: h, body: JSON.stringify(data) };
+    const data = await buildData(true);
+    data.stored_at = new Date().toISOString();
+    try {
+      await store.setJSON("latest", data);
+    } catch (_) {}
+    return { statusCode: 200, headers: headers(forceFresh), body: JSON.stringify(data) };
   } catch (e) {
-    // 실패 시 직전 메모리 캐시라도
-    if (MEM.data) {
-      return {
-        statusCode: 200,
-        headers: headers(true),
-        body: JSON.stringify({ ...MEM.data, stale: true }),
-      };
-    }
+    // 3) 실패 시 오래된 스냅샷이라도 반환 (재난 대응 연속성)
+    try {
+      const snap = await store.get("latest", { type: "json" });
+      if (snap) {
+        return {
+          statusCode: 200,
+          headers: headers(false),
+          body: JSON.stringify({ ...snap, stale: true }),
+        };
+      }
+    } catch (_) {}
+
     return {
       statusCode: 502,
-      headers: { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" },
+      headers: headers(true),
       body: JSON.stringify({ error: String(e && e.message ? e.message : e) }),
     };
   }

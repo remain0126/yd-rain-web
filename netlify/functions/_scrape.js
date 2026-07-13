@@ -1,36 +1,17 @@
 // netlify/functions/_scrape.js
-// 영덕군청 강우량정보 페이지를 긁어와 파싱하는 공용 로직.
-// scheduled-refresh(주기 수집)와 rainfall(접속 응답) 함수가 공유한다.
+// 영덕군청 강우량정보 페이지를 긁어와 파싱하는 공용 로직 (파싱만 담당).
+// 위험도 판정은 _history.js(이력 기반 창 계산) + _tiers.js(기준 판정)에서 수행.
 
 const cheerio = require("cheerio");
 
 const YD_URL = "https://www.yd.go.kr/?p=1020";
 const FETCH_TIMEOUT_MS = 25000;
 
-const EUPMYEON_NAMES = ["영덕", "강구", "남정", "달산", "지품", "축산", "영해", "병곡", "창수"];
-
-const FIRE_TIERS = [
-  { key: "critical", label: "호우특보(경보)", trigger: "호우경보", c3: 90, c12: 180, color: "#f43f5e",
-    actions: ["주민 즉각 대피 발령", "전 대원 현장 출동", "위험구역 접근 통제"] },
-  { key: "high", label: "호우특보(주의보)", trigger: "호우주의보", c3: 60, c12: 110, color: "#fb923c",
-    actions: ["순찰반 현장 출동", "주민 대피 준비 통보", "유관기관 상황 공유"] },
-  { key: "low", label: "호우특보(예비)", trigger: "특보 전 단계", c3: 30, c12: 60, color: "#fbbf24",
-    actions: ["위험구역 순찰 개시", "모니터링 강화", "기상청 예보 실시간 확인"] },
-];
-const NORMAL = { key: "normal", label: "정상", color: "#34d399", actions: ["평시 모니터링"] };
-
 function toValue(text) {
   const t = (text || "").trim();
   if (t === "" || t === "-") return null;
   const n = parseFloat(t);
   return Number.isNaN(n) ? null : n;
-}
-
-function classifyTier(r3, r12) {
-  for (const tier of FIRE_TIERS) {
-    if ((r3 !== null && r3 >= tier.c3) || (r12 !== null && r12 >= tier.c12)) return tier;
-  }
-  return NORMAL;
 }
 
 function parse(html) {
@@ -52,7 +33,6 @@ function parse(html) {
   row2.find("th").each((_, th) => hourLabels.push($(th).text().trim() + "시"));
 
   const colLabels = ["전날누적", ...hourLabels, "오늘누계", "당월누계"];
-  const hourCols = colLabels.filter((c) => /^\d{2}시$/.test(c));
 
   const rows = {};
   $table.find("tbody tr").each((_, tr) => {
@@ -66,26 +46,6 @@ function parse(html) {
     for (let i = 0; i < n; i++) row[colLabels[i]] = values[i];
     rows[name] = row;
   });
-
-  for (const name of Object.keys(rows)) {
-    const row = rows[name];
-    const hv = hourCols.map((c) => (c in row ? row[c] : null));
-    let lastIdx = -1;
-    hv.forEach((v, i) => { if (v !== null && v !== undefined) lastIdx = i; });
-
-    if (lastIdx < 0) {
-      row.recent_3h_mm = null;
-      row.recent_12h_mm = null;
-      Object.assign(row, { risk_key: NORMAL.key, risk_label: NORMAL.label, risk_color: NORMAL.color, risk_actions: NORMAL.actions });
-    } else {
-      const s3 = hv.slice(Math.max(0, lastIdx - 2), lastIdx + 1).reduce((a, v) => a + (v || 0), 0);
-      const s12 = hv.slice(Math.max(0, lastIdx - 11), lastIdx + 1).reduce((a, v) => a + (v || 0), 0);
-      row.recent_3h_mm = Math.round(s3 * 10) / 10;
-      row.recent_12h_mm = Math.round(s12 * 10) / 10;
-      const tier = classifyTier(s3, s12);
-      Object.assign(row, { risk_key: tier.key, risk_label: tier.label, risk_color: tier.color, risk_actions: tier.actions });
-    }
-  }
 
   let dateLabel = null;
   $("h5").each((_, el) => {

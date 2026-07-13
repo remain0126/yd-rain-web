@@ -16,16 +16,10 @@ const CENTERS = [
   { name: "강구", full: "강구119안전센터", towns: ["강구면", "남정면"] },
 ];
 
-const NORMAL = { key: "normal", label: "정상", color: "#34d399", actions: ["평시 모니터링"] };
-const TIERS = [
-  { key: "critical", label: "호우특보(경보)", trigger: "호우경보", c3: 90, c12: 180, color: "#f43f5e",
-    actions: ["주민 즉각 대피 발령", "전 대원 현장 출동", "위험구역 접근 통제"] },
-  { key: "high", label: "호우특보(주의보)", trigger: "호우주의보", c3: 60, c12: 110, color: "#fb923c",
-    actions: ["순찰반 현장 출동", "주민 대피 준비 통보", "유관기관 상황 공유"] },
-  { key: "low", label: "호우특보(예비)", trigger: "특보 전 단계", c3: 30, c12: 60, color: "#fbbf24",
-    actions: ["위험구역 순찰 개시", "모니터링 강화", "기상청 예보 실시간 확인"] },
-];
-const RANK = { critical: 0, high: 1, low: 2, normal: 3 };
+// 강우 단계 기준은 서버(_tiers.js)에서 내려받는다 (기준을 한 곳에서만 관리)
+let TIERS = [];
+let NORMAL = { key: "normal", label: "양호", color: "#34d399", actions: ["평시 모니터링"] };
+const RANK = { extreme: 0, critical: 1, high: 2, low: 3, normal: 4 };
 
 const $ = (id) => document.getElementById(id);
 
@@ -43,29 +37,43 @@ function fmtMm(v) {
   return v === null || v === undefined ? "-" : v + "mm";
 }
 
+// 배경색이 어두우면 흰 글자, 밝으면 검은 글자 (배지 가독성)
+function isDarkColor(hex) {
+  if (!hex || hex[0] !== "#" || hex.length < 7) return false;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  // 상대 휘도 (간이)
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum < 0.55;
+}
+
 // ---------- Center status ----------
 
 function renderCenters(rows) {
   const el = $("centerStatus");
   const cards = CENTERS.map((c) => {
     let worst = NORMAL;
-    let m3 = null, m12 = null;
+    let m1 = null, m3 = null, m12 = null;
+    let incomplete = false;
     const elevated = [];
     c.towns.forEach((t) => {
       const r = rows[t];
       if (!r) return;
       const key = r.risk_key || "normal";
       const tier = key === "normal" ? NORMAL : TIERS.find((x) => x.key === key) || NORMAL;
-      if (RANK[tier.key] < RANK[worst.key]) worst = tier;
+      if ((RANK[tier.key] ?? 9) < (RANK[worst.key] ?? 9)) worst = tier;
+      if (r.recent_1h_mm != null) m1 = m1 === null ? r.recent_1h_mm : Math.max(m1, r.recent_1h_mm);
       if (r.recent_3h_mm != null) m3 = m3 === null ? r.recent_3h_mm : Math.max(m3, r.recent_3h_mm);
       if (r.recent_12h_mm != null) m12 = m12 === null ? r.recent_12h_mm : Math.max(m12, r.recent_12h_mm);
+      if (r.window_complete_12h === false) incomplete = true;
       if (key !== "normal") elevated.push(dn(t));
     });
-    return { c, worst, m3, m12, elevated };
+    return { c, worst, m1, m3, m12, elevated, incomplete };
   });
 
   el.innerHTML = cards
-    .map(({ c, worst, m3, m12, elevated }) => {
+    .map(({ c, worst, m1, m3, m12, elevated, incomplete }) => {
       const isNormal = worst.key === "normal";
       const townsLine = elevated.length
         ? `<div class="cc-towns">특보 대상 <b>${elevated.join(" · ")}</b></div>`
@@ -73,18 +81,23 @@ function renderCenters(rows) {
       const actionsLine = isNormal
         ? ""
         : `<div class="cc-actions">▸ ${worst.actions.join(" · ")}</div>`;
+      const warnLine = incomplete
+        ? `<div class="cc-warn">※ 누적 이력이 아직 부족해 12시간 값이 불완전할 수 있음</div>`
+        : "";
       return `
         <div class="center-card ${isNormal ? "" : "elevated"}" style="--tier-color:${worst.color};">
           <div class="cc-top">
             <span class="cc-name">${c.name}<small>119안전센터</small></span>
-            <span class="cc-badge ${isNormal ? "normal" : ""}">${worst.label}</span>
+            <span class="cc-badge ${isNormal ? "normal" : ""} ${!isNormal && isDarkColor(worst.color) ? "dark-bg" : ""}">${worst.label}</span>
           </div>
           <div class="cc-metrics">
-            <div class="cc-metric"><span class="k">3시간 최대</span><span class="v">${fmtMm(m3)}</span></div>
-            <div class="cc-metric"><span class="k">12시간 최대</span><span class="v">${fmtMm(m12)}</span></div>
+            <div class="cc-metric"><span class="k">1시간</span><span class="v">${fmtMm(m1)}</span></div>
+            <div class="cc-metric"><span class="k">3시간</span><span class="v">${fmtMm(m3)}</span></div>
+            <div class="cc-metric"><span class="k">12시간</span><span class="v">${fmtMm(m12)}</span></div>
           </div>
           ${townsLine}
           ${actionsLine}
+          ${warnLine}
         </div>`;
     })
     .join("");
@@ -100,7 +113,7 @@ function renderRanking(rows) {
       name: n,
       value: r["오늘누계"],
       riskKey: r.risk_key || "normal",
-      riskLabel: r.risk_label || "정상",
+      riskLabel: r.risk_label || "양호",
       riskColor: r.risk_color || NORMAL.color,
     };
   });
@@ -115,7 +128,7 @@ function renderRanking(rows) {
         hasRain && idx === 0 ? "#fbbf24" : hasRain && idx === 1 ? "#cbd5e1" : hasRain && idx === 2 ? "#d97706" : "var(--muted)";
       const badge =
         it.riskKey !== "normal"
-          ? `<span class="rk-badge" style="background:${it.riskColor}22;color:${it.riskColor};">${it.riskLabel.replace("호우특보", "").replace(/[()]/g, "")}</span>`
+          ? `<span class="rk-badge" style="background:${it.riskColor}22;color:${it.riskColor};">${it.riskLabel}</span>`
           : "";
       const fillColor = it.riskKey !== "normal" ? `background:${it.riskColor};` : "";
       return `
@@ -222,14 +235,18 @@ function renderDetail(rows, columns) {
 
 function renderTierCards() {
   const el = $("tierCards");
+  if (!TIERS.length) {
+    el.innerHTML = "";
+    return;
+  }
   el.innerHTML = TIERS.map(
     (t) => `
     <div class="tier-c" style="--tier-color:${t.color};">
       <div class="tier-c-top">
-        <span class="tier-c-badge">${t.label}</span>
+        <span class="tier-c-badge ${isDarkColor(t.color) ? "dark-bg" : ""}">${t.label}</span>
         <span class="tier-c-trigger">${t.trigger}</span>
       </div>
-      <div class="tier-c-crit">3시간 ${t.c3}mm · 12시간 ${t.c12}mm 이상</div>
+      <div class="tier-c-crit">${t.criteria}</div>
       <div class="tier-c-act">${t.actions.join(" · ")}</div>
     </div>`
   ).join("");
@@ -253,6 +270,14 @@ function loadLocal() {
 function paint(data, opts) {
   const rows = data.rows || {};
   const columns = data.columns || [];
+
+  // 서버가 내려준 강우 단계 기준을 반영 (기준 변경 시 서버만 고치면 됨)
+  if (Array.isArray(data.tiers) && data.tiers.length) {
+    TIERS = data.tiers;
+    if (data.normal) NORMAL = data.normal;
+    renderTierCards();
+  }
+
   renderCenters(rows);
   renderRanking(rows);
   renderDetail(rows, columns);
@@ -308,7 +333,6 @@ async function load(force) {
 
 // 새로고침 버튼 = 강제 최신(fresh), 자동/최초 = 캐시 허용
 $("refreshBtn").addEventListener("click", () => load(true));
-renderTierCards();
 
 // 재방문이면 저장된 직전 데이터를 먼저 즉시 그려서 체감 속도 향상,
 // 그 뒤 백그라운드로 최신 데이터를 받아 교체

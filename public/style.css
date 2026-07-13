@@ -187,14 +187,24 @@ html, body {
 }
 .cc-badge.normal { background: transparent; color: var(--muted); border: 1px solid var(--border); font-weight: 600; }
 
+/* 극한호우 등 어두운 배경색에서는 흰 글자로 (가독성) */
+.cc-badge.dark-bg, .tier-c-badge.dark-bg { color: #fff; }
+
 .cc-metrics {
   display: flex;
-  gap: 18px;
+  gap: 16px;
   margin-top: 12px;
 }
-.cc-metric { display: flex; flex-direction: column; gap: 2px; }
-.cc-metric .k { font-size: 0.68rem; color: var(--muted); }
-.cc-metric .v { font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.cc-metric { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.cc-metric .k { font-size: 0.66rem; color: var(--muted); }
+.cc-metric .v { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+.cc-warn {
+  margin-top: 8px;
+  font-size: 0.68rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
 
 .cc-towns {
   margin-top: 10px;

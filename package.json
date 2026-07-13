@@ -2,8 +2,9 @@
   "name": "yd-rain-web",
   "version": "1.0.0",
   "private": true,
-  "description": "영덕군 관내 읍면 실시간 강우량 모니터링 (PWA + Netlify Functions)",
+  "description": "영덕군 강우상황 모니터링 (PWA + Netlify Functions)",
   "dependencies": {
-    "cheerio": "^1.0.0"
+    "@netlify/blobs": "^8.2.0",
+    "cheerio": "^1.2.0"
   }
 }
