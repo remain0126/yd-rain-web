@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+<title>영덕군 강우상황 모니터링</title>
+<meta name="theme-color" content="#0a0f16" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="영덕강우" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/icons/icon-192.png" />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" media="print" onload="this.media='all'"
+  href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="app-bar">
+      <div class="app-bar-top">
+        <div class="app-bar-main">
+          <div class="app-title">영덕군 강우상황 모니터링</div>
+          <div class="app-sub" id="dateLabel">불러오는 중…</div>
+        </div>
+        <button type="button" id="refreshBtn" class="refresh-btn" aria-label="새로고침">
+          <span id="refreshIcon">↻</span>
+        </button>
+      </div>
+      <div class="manager-info">
+        <div class="mi-row"><span class="mi-k">관리부서</span><span class="mi-v">예방안전과</span></div>
+        <div class="mi-row"><span class="mi-k">관리자</span><span class="mi-v">예방총괄계 정다호</span></div>
+        <div class="mi-row"><span class="mi-k">관련문의</span><a class="mi-v mi-tel" href="tel:054-730-1536">054-730-1536</a></div>
+      </div>
+    </header>
+
+    <div class="updated-line">
+      <span id="updatedAt">최신 데이터 확인 중…</span>
+      <span id="connDot" class="dot dot-unknown"></span>
+    </div>
+
+    <!-- 센터 상황 요약 (가장 위, 가장 크게) -->
+    <section class="section">
+      <div class="section-head">
+        <h2>119안전센터 관할 현황</h2>
+      </div>
+      <div id="centerStatus" class="center-stack">
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+      </div>
+    </section>
+
+    <!-- 읍면 순위 -->
+    <section class="section">
+      <div class="section-head">
+        <h2>읍면별 오늘 누적강수량</h2>
+        <span class="section-note">많은 순</span>
+      </div>
+      <div id="ranking" class="ranking"></div>
+    </section>
+
+    <!-- 시간대별 상세 (항상 펼침) -->
+    <section class="section">
+      <div class="section-head">
+        <h2>시간대별 상세 · 관측지점 전체</h2>
+      </div>
+      <div class="legend" id="legend">
+        <span class="lg"><i style="background:#64748b"></i>0</span>
+        <span class="lg"><i style="background:#38bdf8"></i>~1</span>
+        <span class="lg"><i style="background:#0ea5e9"></i>~5</span>
+        <span class="lg"><i style="background:#2563eb"></i>~10</span>
+        <span class="lg"><i style="background:#a855f7"></i>~20</span>
+        <span class="lg"><i style="background:#f43f5e"></i>20+</span>
+        <span class="lg-unit">mm/h</span>
+      </div>
+      <div id="detailList" class="detail-list detail-open"></div>
+    </section>
+
+    <!-- 기준표 (접이식) -->
+    <section class="section">
+      <details id="tierBox">
+        <summary class="detail-summary">
+          <span>강우 단계별 소방 대응 기준</span>
+          <span class="chev">▾</span>
+        </summary>
+        <div id="tierCards" class="tier-cards"></div>
+        <p class="tier-note">
+          산불 피해지역은 식생 소실로 낮은 강우에도 산사태 위험 → 특보 전 단계부터 선제 대응.
+          기상청 호우특보 기준 준용(2024).
+        </p>
+      </details>
+    </section>
+
+    <footer class="app-foot">
+      출처: 영덕군청 강우량정보 (재난안전대책본부 상황관리용)<br />
+      참고용 자료이며 공식 특보는 기상청 발표 기준
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

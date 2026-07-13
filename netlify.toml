@@ -1,0 +1,31 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+# 함수 최대 실행시간 연장 (영덕군청이 느릴 때 대비)
+[functions]
+  node_bundler = "esbuild"
+
+[functions.rainfall]
+  timeout = 26
+
+[functions.diag]
+  timeout = 26
+
+# 프론트엔드에서 /api/rainfall 로 호출하면 함수로 연결 (쿼리스트링 유지)
+[[redirects]]
+  from = "/api/rainfall"
+  to = "/.netlify/functions/rainfall"
+  status = 200
+
+# 진단용
+[[redirects]]
+  from = "/api/diag"
+  to = "/.netlify/functions/diag"
+  status = 200
+
+# SPA 폴백
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

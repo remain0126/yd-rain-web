@@ -1,0 +1,15 @@
+{
+  "name": "영덕 강우 감시",
+  "short_name": "영덕강우",
+  "description": "영덕군 관내 읍면 실시간 강우량 및 119안전센터 관할 위험도 모니터링",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0f16",
+  "theme_color": "#0a0f16",
+  "lang": "ko",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
