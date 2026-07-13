@@ -14,7 +14,17 @@
 // 절대 시각 인덱스로 환산: slot = 날짜(일수) * 24 + HH  (HH는 1~24)
 // 이렇게 하면 어제 24시 다음이 오늘 1시로 자연스럽게 이어진다.
 
-const { getStore } = require("@netlify/blobs");
+// Blobs는 반드시 "핸들러 실행 시점"에 초기화해야 한다.
+// 모듈 최상단에서 require/getStore 하면 MissingBlobsEnvironmentError가 발생한다.
+// 또한 Blobs를 못 쓰는 환경일 수도 있으므로 실패 시 null을 반환하고 앱은 계속 동작.
+function blobStore(name) {
+  try {
+    const { getStore } = require("@netlify/blobs");
+    return getStore(name);
+  } catch (_) {
+    return null;
+  }
+}
 
 const KEEP_HOURS = 48;
 
@@ -57,8 +67,10 @@ function extractDate(dateLabel) {
 
 /** 오늘 시간별 값을 이력에 병합 저장 */
 async function mergeHistory(rows, dateLabel) {
-  const store = getStore("rainfall-history");
+  const store = blobStore("rainfall-history");
   let hist = {};
+  if (!store) return hist; // Blobs 불가 -> 이력 없이 오늘 데이터만으로 동작
+
   try {
     const existing = await store.get("hourly", { type: "json" });
     if (existing) hist = existing;
@@ -94,8 +106,9 @@ async function mergeHistory(rows, dateLabel) {
 }
 
 async function readHistory() {
+  const store = blobStore("rainfall-history");
+  if (!store) return {};
   try {
-    const store = getStore("rainfall-history");
     const hist = await store.get("hourly", { type: "json" });
     return hist || {};
   } catch (_) {
