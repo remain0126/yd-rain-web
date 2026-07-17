@@ -15,7 +15,8 @@ yd-rain-web/
 │   ├─ _tiers.js             # 강우 단계 기준 (극한호우 포함 4단계)
 │   ├─ _build.js             # 파이프라인: 긁기 -> 이력 병합 -> 창 계산 -> 판정
 │   ├─ rainfall.js           # 사용자 접속 응답 (/api/rainfall)
-│   ├─ scheduled-refresh.js  # 5분마다 자동 수집 + 이력 누적
+│   ├─ scheduled-refresh.js  # 5분마다 백그라운드 수집 함수 호출
+│   ├─ refresh-background.js # 장시간 수집 + 이력 누적
 │   └─ diag.js               # 진단용 (/api/diag)
 └─ public/                   # 프론트엔드 (PWA)
 ```
@@ -26,8 +27,9 @@ yd-rain-web/
 (전날누적 = 어제 하루 총합 하나뿐). 그래서 새벽 2시에 12시간 누적을 구하려면
 어제 15~24시 값이 필요한데 그 정보가 원본에 없다.
 
-→ `scheduled-refresh.js`가 **5분마다 시간별 값을 Blobs에 누적 저장**하고,
-`_history.js`가 그 이력을 이용해 **연속된 시간축**으로 창을 계산한다.
+→ `scheduled-refresh.js`가 **5분마다 `refresh-background.js`를 호출**하고,
+백그라운드 함수가 시간별 값을 Blobs에 누적 저장한다. `_history.js`는 이 이력을
+이용해 **연속된 시간축**으로 창을 계산한다.
 따라서 23시부터 쏟아진 비도 자정을 넘겨 정확히 3시간/12시간 누적에 반영된다.
 
 이력은 48시간치만 보관한다.
