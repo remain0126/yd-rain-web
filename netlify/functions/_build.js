@@ -9,15 +9,17 @@ const { classify, tiersForClient, NORMAL } = require("./_tiers");
 /**
  * @param {boolean} persist true면 이력을 저장소에 병합 저장(주기 수집/최신화 시).
  *                          false면 저장된 이력을 읽기만 함.
+ * @param {object|string|null} event connectLambda용 이벤트("auto"면 자동주입 컨텍스트)
+ * @param {number} [timeoutMs] 영덕군청 fetch 타임아웃(백그라운드는 길게)
  */
-async function buildData(persist = true) {
-  const data = await scrape();
+async function buildData(persist = true, event = null, timeoutMs) {
+  const data = await scrape(timeoutMs);
 
   let hist;
   if (persist) {
-    hist = await mergeHistory(data.rows, data.date_label);
+    hist = await mergeHistory(data.rows, data.date_label, event);
   } else {
-    hist = await readHistory();
+    hist = await readHistory(event);
   }
 
   const windows = computeWindows(hist, data.rows, data.date_label);

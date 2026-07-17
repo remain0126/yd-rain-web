@@ -18,10 +18,13 @@ async function tryFetch(label, url, opts, timeoutMs) {
   }
 }
 
-async function testBlobs() {
+async function testBlobs(event) {
   try {
-    const { getStore } = require("@netlify/blobs");
-    const store = getStore("diag-test");
+    const blobs = require("@netlify/blobs");
+    if (event && typeof blobs.connectLambda === "function") {
+      blobs.connectLambda(event);
+    }
+    const store = blobs.getStore("diag-test");
     const stamp = new Date().toISOString();
     await store.setJSON("ping", { stamp });
     const back = await store.get("ping", { type: "json" });
@@ -36,7 +39,7 @@ async function testBlobs() {
   }
 }
 
-exports.handler = async function () {
+exports.handler = async function (event) {
   const results = [];
   results.push(
     await tryFetch(
@@ -52,7 +55,7 @@ exports.handler = async function () {
     )
   );
 
-  const blobs = await testBlobs();
+  const blobs = await testBlobs(event);
 
   return {
     statusCode: 200,

@@ -2,29 +2,29 @@
   publish = "public"
   functions = "netlify/functions"
 
-# 함수 최대 실행시간 연장 (영덕군청이 느릴 때 대비)
 [functions]
   node_bundler = "esbuild"
 
+# 사용자 접속 함수: 빠른 응답 (저장된 스냅샷만 읽으므로 짧아도 됨)
 [functions.rainfall]
-  timeout = 26
+  timeout = 10
 
 [functions.diag]
-  timeout = 26
+  timeout = 10
 
-# 프론트엔드에서 /api/rainfall 로 호출하면 함수로 연결 (쿼리스트링 유지)
+# scheduled-refresh-background 는 파일명에 -background 가 붙어
+# 자동으로 백그라운드 함수(최대 15분)로 동작하므로 별도 timeout 설정 불필요.
+
 [[redirects]]
   from = "/api/rainfall"
   to = "/.netlify/functions/rainfall"
   status = 200
 
-# 진단용
 [[redirects]]
   from = "/api/diag"
   to = "/.netlify/functions/diag"
   status = 200
 
-# SPA 폴백
 [[redirects]]
   from = "/*"
   to = "/index.html"

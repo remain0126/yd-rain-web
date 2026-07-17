@@ -1,20 +1,22 @@
 // netlify/functions/rainfall.js
 // 사용자 접속 시 호출.
 //
-// [중요] Netlify Blobs는 반드시 "핸들러 실행 시점"에 초기화해야 한다.
-// 모듈 최상단에서 require/getStore 하면 MissingBlobsEnvironmentError가 난다.
-// 또한 Blobs가 아예 동작하지 않는 환경일 수도 있으므로, 실패해도 앱이 죽지 않고
-// 오늘 데이터는 정상 표시되도록 전 구간을 방어한다(이 경우 12시간 창만 불완전).
+// [중요] Lambda 호환 모드(exports.handler)에서는 Blobs 환경이 자동 주입되지 않는다.
+// 반드시 handler 안에서 connectLambda(event)를 호출한 뒤 getStore를 써야 한다.
+// (공식 문서에 잘 안 나와 있는 함정)
 
 const { buildData } = require("./_build");
 
 const SNAPSHOT_TTL_MS = 6 * 60 * 1000;
 
-// Blobs 스토어를 안전하게 얻는다. 실패하면 null (앱은 계속 동작).
-function safeStore(name) {
+// event로 Blobs 환경을 연결한 store를 얻는다. 실패하면 null(앱은 계속 동작).
+function safeStore(name, event) {
   try {
-    const { getStore } = require("@netlify/blobs");
-    return getStore(name);
+    const blobs = require("@netlify/blobs");
+    if (event && typeof blobs.connectLambda === "function") {
+      blobs.connectLambda(event);
+    }
+    return blobs.getStore(name);
   } catch (_) {
     return null;
   }
@@ -40,9 +42,9 @@ exports.handler = async function (event) {
   const forceFresh =
     event && event.queryStringParameters && event.queryStringParameters.fresh === "1";
 
-  const store = safeStore("rainfall"); // null일 수 있음
+  const store = safeStore("rainfall", event); // null일 수 있음
 
-  // 1) 저장된 스냅샷이 충분히 신선하면 즉시 반환
+  // 1) 신선한 스냅샷이 있으면 즉시 반환
   if (!forceFresh && store) {
     try {
       const snap = await store.get("latest", { type: "json" });
@@ -55,12 +57,15 @@ exports.handler = async function (event) {
     } catch (_) {}
   }
 
-  // 2) 직접 긁기 (+ 가능하면 이력/스냅샷 저장)
+  // 2) 스냅샷이 없거나 오래됨 -> 직접 긁는다.
+  //    사용자 함수는 10초 제한이라 이력 "저장"은 백그라운드에 맡기고 여기선 읽기만(persist=false).
+  //    event를 넘겨 Blobs 이력을 읽어 12시간 창까지 계산한다.
   try {
-    const data = await buildData(true);
+    const data = await buildData(false, event);
     data.stored_at = new Date().toISOString();
     data.blobs_ok = !!store;
 
+    // 스냅샷은 저장해둔다(다음 접속자 빠르게)
     if (store) {
       try {
         await store.setJSON("latest", data);
@@ -81,7 +86,6 @@ exports.handler = async function (event) {
         }
       } catch (_) {}
     }
-
     return {
       statusCode: 502,
       headers: headers(true),

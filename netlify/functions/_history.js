@@ -15,12 +15,16 @@
 // 이렇게 하면 어제 24시 다음이 오늘 1시로 자연스럽게 이어진다.
 
 // Blobs는 반드시 "핸들러 실행 시점"에 초기화해야 한다.
-// 모듈 최상단에서 require/getStore 하면 MissingBlobsEnvironmentError가 발생한다.
-// 또한 Blobs를 못 쓰는 환경일 수도 있으므로 실패 시 null을 반환하고 앱은 계속 동작.
-function blobStore(name) {
+// - Lambda 호환 모드(exports.handler): event 객체를 connectLambda로 넘겨야 함
+// - Functions 2.0 (export default): 자동 주입되므로 그냥 getStore ("auto" 신호)
+// 실패 시 null을 반환하고 앱은 계속 동작한다.
+function blobStore(name, event) {
   try {
-    const { getStore } = require("@netlify/blobs");
-    return getStore(name);
+    const blobs = require("@netlify/blobs");
+    if (event && event !== "auto" && typeof blobs.connectLambda === "function") {
+      blobs.connectLambda(event);
+    }
+    return blobs.getStore(name);
   } catch (_) {
     return null;
   }
@@ -66,8 +70,8 @@ function extractDate(dateLabel) {
 }
 
 /** 오늘 시간별 값을 이력에 병합 저장 */
-async function mergeHistory(rows, dateLabel) {
-  const store = blobStore("rainfall-history");
+async function mergeHistory(rows, dateLabel, event) {
+  const store = blobStore("rainfall-history", event);
   let hist = {};
   if (!store) return hist; // Blobs 불가 -> 이력 없이 오늘 데이터만으로 동작
 
@@ -105,8 +109,8 @@ async function mergeHistory(rows, dateLabel) {
   return hist;
 }
 
-async function readHistory() {
-  const store = blobStore("rainfall-history");
+async function readHistory(event) {
+  const store = blobStore("rainfall-history", event);
   if (!store) return {};
   try {
     const hist = await store.get("hourly", { type: "json" });

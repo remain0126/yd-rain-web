@@ -5,7 +5,8 @@
 const cheerio = require("cheerio");
 
 const YD_URL = "https://www.yd.go.kr/?p=1020";
-const FETCH_TIMEOUT_MS = 25000;
+const FETCH_TIMEOUT_DEFAULT = 9000;   // 사용자 접속 함수용(무료 10초 제한 안쪽)
+const FETCH_TIMEOUT_BACKGROUND = 90000; // 백그라운드 함수용(최대 15분이라 여유)
 
 function toValue(text) {
   const t = (text || "").trim();
@@ -56,9 +57,10 @@ function parse(html) {
   return { columns: colLabels, rows, date_label: dateLabel };
 }
 
-async function scrape() {
+async function scrape(timeoutMs) {
+  const ms = timeoutMs || FETCH_TIMEOUT_DEFAULT;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), ms);
   try {
     const resp = await fetch(YD_URL, {
       signal: controller.signal,
@@ -78,4 +80,4 @@ async function scrape() {
   }
 }
 
-module.exports = { scrape, parse };
+module.exports = { scrape, parse, FETCH_TIMEOUT_DEFAULT, FETCH_TIMEOUT_BACKGROUND };
