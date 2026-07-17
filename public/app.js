@@ -55,7 +55,7 @@ function renderCenters(rows) {
   const cards = CENTERS.map((c) => {
     let worst = NORMAL;
     let m1 = null, m3 = null, m12 = null;
-    let incomplete = false;
+    let incomplete3 = false, incomplete12 = false;
     const elevated = [];
     c.towns.forEach((t) => {
       const r = rows[t];
@@ -66,14 +66,15 @@ function renderCenters(rows) {
       if (r.recent_1h_mm != null) m1 = m1 === null ? r.recent_1h_mm : Math.max(m1, r.recent_1h_mm);
       if (r.recent_3h_mm != null) m3 = m3 === null ? r.recent_3h_mm : Math.max(m3, r.recent_3h_mm);
       if (r.recent_12h_mm != null) m12 = m12 === null ? r.recent_12h_mm : Math.max(m12, r.recent_12h_mm);
-      if (r.window_complete_12h === false) incomplete = true;
+      if (r.window_complete_3h === false) incomplete3 = true;
+      if (r.window_complete_12h === false) incomplete12 = true;
       if (key !== "normal") elevated.push(dn(t));
     });
-    return { c, worst, m1, m3, m12, elevated, incomplete };
+    return { c, worst, m1, m3, m12, elevated, incomplete3, incomplete12 };
   });
 
   el.innerHTML = cards
-    .map(({ c, worst, m1, m3, m12, elevated, incomplete }) => {
+    .map(({ c, worst, m1, m3, m12, elevated, incomplete3, incomplete12 }) => {
       const isNormal = worst.key === "normal";
       const townsLine = elevated.length
         ? `<div class="cc-towns">특보 대상 <b>${elevated.join(" · ")}</b></div>`
@@ -81,9 +82,8 @@ function renderCenters(rows) {
       const actionsLine = isNormal
         ? ""
         : `<div class="cc-actions">▸ ${worst.actions.join(" · ")}</div>`;
-      const warnLine = incomplete
-        ? `<div class="cc-warn">※ 누적 이력이 아직 부족해 12시간 값이 불완전할 수 있음</div>`
-        : "";
+      // 사용자가 정한 표시 원칙: 누적 산정에 필요한 시간대가 하나라도 없으면 0mm로 표시
+      const warnLine = "";
       return `
         <div class="center-card ${isNormal ? "" : "elevated"}" style="--tier-color:${worst.color};">
           <div class="cc-top">
@@ -92,8 +92,8 @@ function renderCenters(rows) {
           </div>
           <div class="cc-metrics">
             <div class="cc-metric"><span class="k">1시간</span><span class="v">${fmtMm(m1)}</span></div>
-            <div class="cc-metric"><span class="k">3시간</span><span class="v">${fmtMm(m3)}</span></div>
-            <div class="cc-metric"><span class="k">12시간</span><span class="v">${fmtMm(m12)}</span></div>
+            <div class="cc-metric"><span class="k">3시간</span><span class="v">${incomplete3 ? "0mm" : fmtMm(m3)}</span></div>
+            <div class="cc-metric"><span class="k">12시간</span><span class="v">${incomplete12 ? "0mm" : fmtMm(m12)}</span></div>
           </div>
           ${townsLine}
           ${actionsLine}
