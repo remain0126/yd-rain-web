@@ -1,15 +1,10 @@
 // netlify/functions/rainfall.js
-// 사용자 접속 시 호출.
-//
-// [중요] Lambda 호환 모드(exports.handler)에서는 Blobs 환경이 자동 주입되지 않는다.
-// 반드시 handler 안에서 connectLambda(event)를 호출한 뒤 getStore를 써야 한다.
-// (공식 문서에 잘 안 나와 있는 함정)
+// 사용자 화면에는 Blobs에 저장된 최신 스냅샷을 빠르게 반환한다.
+// 영덕군청 직접 수집은 느릴 수 있으므로 Background Function에만 맡긴다.
 
-const { buildData } = require("./_build");
+const SNAPSHOT_STALE_MS = 10 * 60 * 1000;
+const REFRESH_AFTER_MS = 5 * 60 * 1000;
 
-const SNAPSHOT_TTL_MS = 6 * 60 * 1000;
-
-// event로 Blobs 환경을 연결한 store를 얻는다. 실패하면 null(앱은 계속 동작).
 function safeStore(name, event) {
   try {
     const blobs = require("@netlify/blobs");
@@ -22,74 +17,91 @@ function safeStore(name, event) {
   }
 }
 
-function headers(noStore) {
-  if (noStore) {
-    return {
-      "Content-Type": "application/json; charset=utf-8",
-      "Access-Control-Allow-Origin": "*",
-      "Cache-Control": "no-store",
-    };
-  }
+function responseHeaders(noStore = true) {
   return {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
-    "Cache-Control": "public, max-age=60",
-    "Netlify-CDN-Cache-Control": "public, durable, s-maxage=300, stale-while-revalidate=600",
+    "Cache-Control": noStore ? "no-store" : "public, max-age=30",
   };
+}
+
+function siteBaseUrl(event) {
+  const envUrl = (process.env.URL || process.env.DEPLOY_PRIME_URL || "").replace(/\/$/, "");
+  if (envUrl) return envUrl;
+
+  const headers = (event && event.headers) || {};
+  const host = headers.host || headers.Host;
+  const proto = headers["x-forwarded-proto"] || "https";
+  return host ? `${proto}://${host}` : "";
+}
+
+async function requestBackgroundRefresh(event) {
+  const baseUrl = siteBaseUrl(event);
+  if (!baseUrl) return { ok: false, error: "site URL unavailable" };
+
+  try {
+    const resp = await fetch(`${baseUrl}/.netlify/functions/refresh-background`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source: "rainfall",
+        requested_at: new Date().toISOString(),
+      }),
+    });
+    return { ok: resp.ok, status: resp.status };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message ? e.message : e) };
+  }
 }
 
 exports.handler = async function (event) {
   const forceFresh =
     event && event.queryStringParameters && event.queryStringParameters.fresh === "1";
 
-  const store = safeStore("rainfall", event); // null일 수 있음
+  const store = safeStore("rainfall", event);
+  let snap = null;
 
-  // 1) 신선한 스냅샷이 있으면 즉시 반환
-  if (!forceFresh && store) {
+  if (store) {
     try {
-      const snap = await store.get("latest", { type: "json" });
-      if (snap && snap.stored_at) {
-        const age = Date.now() - new Date(snap.stored_at).getTime();
-        if (age < SNAPSHOT_TTL_MS) {
-          return { statusCode: 200, headers: headers(false), body: JSON.stringify(snap) };
-        }
-      }
+      snap = await store.get("latest", { type: "json" });
     } catch (_) {}
   }
 
-  // 2) 스냅샷이 없거나 오래됨 -> 직접 긁는다.
-  //    사용자 함수는 10초 제한이라 이력 "저장"은 백그라운드에 맡기고 여기선 읽기만(persist=false).
-  //    event를 넘겨 Blobs 이력을 읽어 12시간 창까지 계산한다.
-  try {
-    const data = await buildData(false, event);
-    data.stored_at = new Date().toISOString();
-    data.blobs_ok = !!store;
+  const ageMs =
+    snap && snap.stored_at
+      ? Math.max(0, Date.now() - new Date(snap.stored_at).getTime())
+      : Number.POSITIVE_INFINITY;
 
-    // 스냅샷은 저장해둔다(다음 접속자 빠르게)
-    if (store) {
-      try {
-        await store.setJSON("latest", data);
-      } catch (_) {}
-    }
-    return { statusCode: 200, headers: headers(forceFresh), body: JSON.stringify(data) };
-  } catch (e) {
-    // 3) 실패 시 옛 스냅샷이라도
-    if (store) {
-      try {
-        const snap = await store.get("latest", { type: "json" });
-        if (snap) {
-          return {
-            statusCode: 200,
-            headers: headers(false),
-            body: JSON.stringify({ ...snap, stale: true }),
-          };
-        }
-      } catch (_) {}
-    }
+  const shouldRefresh = forceFresh || !snap || ageMs >= REFRESH_AFTER_MS;
+  let dispatch = null;
+  if (shouldRefresh) {
+    dispatch = await requestBackgroundRefresh(event);
+  }
+
+  // 저장된 자료가 있으면 즉시 반환하고, 새 수집은 뒤에서 진행한다.
+  if (snap) {
     return {
-      statusCode: 502,
-      headers: headers(true),
-      body: JSON.stringify({ error: String(e && e.message ? e.message : e) }),
+      statusCode: 200,
+      headers: responseHeaders(forceFresh),
+      body: JSON.stringify({
+        ...snap,
+        stale: ageMs >= SNAPSHOT_STALE_MS,
+        refresh_requested: !!(dispatch && dispatch.ok),
+        refresh_status: dispatch && dispatch.status ? dispatch.status : undefined,
+      }),
     };
   }
+
+  // 최초 배포 등 스냅샷이 아직 없으면 백그라운드 수집 완료 후 재시도하게 한다.
+  return {
+    statusCode: 202,
+    headers: responseHeaders(true),
+    body: JSON.stringify({
+      pending: true,
+      message: "강우자료를 수집 중입니다. 잠시 후 다시 확인해 주세요.",
+      refresh_requested: !!(dispatch && dispatch.ok),
+      refresh_status: dispatch && dispatch.status ? dispatch.status : undefined,
+      dispatch_error: dispatch && dispatch.error ? dispatch.error : undefined,
+    }),
+  };
 };

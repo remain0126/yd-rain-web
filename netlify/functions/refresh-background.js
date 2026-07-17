@@ -1,37 +1,52 @@
 // netlify/functions/refresh-background.js
-//
-// [백그라운드 함수] 파일명에 "-background"가 붙으면 최대 15분까지 실행 가능하다.
-// (일반 함수는 무료 10초/유료 26초 제한 -> 영덕군청이 1분 걸리면 못 기다림)
-//
-// 5분마다 스케줄 실행되어:
-//  - 영덕군청을 느긋하게 긁어(최대 90초 대기) 시간별 이력을 Blobs에 누적
-//  - 최신 스냅샷 저장 -> 사용자 접속(rainfall.js)은 이 스냅샷만 즉시 반환하므로 빠름
+// 느린 영덕군청 수집과 Blobs 저장을 담당하는 Background Function.
 
 const { buildData } = require("./_build");
 const { FETCH_TIMEOUT_BACKGROUND } = require("./_scrape");
 
-function autoStore(name) {
-  try {
-    const { getStore } = require("@netlify/blobs");
-    return getStore(name);
-  } catch (_) {
-    return null;
+function connectStore(name, event) {
+  const blobs = require("@netlify/blobs");
+  // CommonJS/Lambda 호환 함수에서는 반드시 event로 Blobs 환경을 연결해야 한다.
+  if (event && typeof blobs.connectLambda === "function") {
+    blobs.connectLambda(event);
   }
+  return blobs.getStore(name);
 }
 
-exports.handler = async function () {
-  try {
-    // 백그라운드라 시간 여유가 있으므로 영덕군청을 오래(최대 90초) 기다린다.
-    const data = await buildData(true, "auto", FETCH_TIMEOUT_BACKGROUND);
-    data.stored_at = new Date().toISOString();
+exports.handler = async function (event) {
+  const started = Date.now();
 
-    const store = autoStore("rainfall");
-    if (store) {
-      await store.setJSON("latest", data);
-    }
-    // 백그라운드 함수는 반환값이 클라이언트로 안 감(이미 202 응답). 로깅용.
-    return { statusCode: 200, body: "refreshed: " + (data.date_label || "") };
+  try {
+    // 먼저 Blobs 환경을 연결한다. buildData 내부 이력 저장에도 같은 event를 넘긴다.
+    const store = connectStore("rainfall", event);
+    const data = await buildData(true, event, FETCH_TIMEOUT_BACKGROUND);
+
+    data.stored_at = new Date().toISOString();
+    data.blobs_ok = true;
+    await store.setJSON("latest", data);
+
+    console.log(
+      JSON.stringify({
+        ok: true,
+        function: "refresh-background",
+        date_label: data.date_label || null,
+        rows: data.rows ? Object.keys(data.rows).length : 0,
+        elapsed_ms: Date.now() - started,
+        stored_at: data.stored_at,
+      })
+    );
+
+    return { statusCode: 200, body: "refreshed" };
   } catch (e) {
-    return { statusCode: 500, body: "refresh failed: " + (e && e.message ? e.message : e) };
+    const message = String(e && e.message ? e.message : e);
+    console.error(
+      JSON.stringify({
+        ok: false,
+        function: "refresh-background",
+        error: message,
+        elapsed_ms: Date.now() - started,
+      })
+    );
+    return { statusCode: 500, body: "refresh failed: " + message };
   }
 };

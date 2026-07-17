@@ -317,28 +317,62 @@ function paint(data, opts) {
   }
 }
 
+let retryTimer = null;
+function scheduleRetry(ms = 25000) {
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    load(false);
+  }, ms);
+}
+
 async function load(force) {
   const icon = $("refreshIcon");
   icon.classList.add("spin");
   try {
-    const url = force ? "/api/rainfall?fresh=1" : "/api/rainfall";
-    const res = await fetch(url, force ? { cache: "no-store" } : {});
+    const sep = force ? "?fresh=1&" : "?";
+    const url = "/api/rainfall" + sep + "_=" + Date.now();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    let res;
+    try {
+      res = await fetch(url, { cache: "no-store", signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const data = await res.json().catch(() => ({}));
+
+    // 최초 스냅샷 생성 중: 기존 로컬 자료를 유지하고 잠시 후 자동 재시도.
+    if (res.status === 202 || data.pending) {
+      const local = loadLocal();
+      if (local) {
+        paint(local, { cachedView: true });
+      } else {
+        $("updatedAt").textContent = "자료 수집 중 · 잠시 후 자동 갱신";
+        $("connDot").className = "dot dot-stale";
+      }
+      scheduleRetry(25000);
+      return;
+    }
+
     if (!res.ok) throw new Error("서버 응답 " + res.status);
-    const data = await res.json();
     if (data.error) throw new Error(data.error);
 
     paint(data, { cachedView: false });
     saveLocal(data);
+
+    // 수동 새로고침 또는 오래된 자료로 인해 백그라운드 수집을 요청했다면
+    // 실제 저장이 끝난 뒤 한 번 더 읽어 화면을 교체한다.
+    if (data.refresh_requested) scheduleRetry(25000);
   } catch (e) {
-    // 네트워크 실패 시에도 "실패" 문구를 띄우지 않는다. (재난 자료 신뢰성 유지)
-    // 브라우저에 저장된 마지막 자료를 그대로 보여주되, paint()가 자료기준 시각을
-    // 정확히 표시하므로 사용자는 그 자료가 언제 것인지 알고 신뢰할 수 있다.
     const local = loadLocal();
     if (local) {
       paint(local, { cachedView: true });
     } else {
       $("updatedAt").textContent = "자료 수신 대기 중 · 잠시 후 자동 갱신";
       $("connDot").className = "dot dot-stale";
+      scheduleRetry(25000);
     }
     console.error(e);
   } finally {

@@ -5,15 +5,13 @@
 [functions]
   node_bundler = "esbuild"
 
-# 사용자 접속 함수: 빠른 응답 (저장된 스냅샷만 읽으므로 짧아도 됨)
-[functions.rainfall]
-  timeout = 10
+# 5분마다 짧은 예약 함수가 Background Function을 호출한다.
+[functions."scheduled-refresh"]
+  schedule = "*/5 * * * *"
 
-[functions.diag]
-  timeout = 10
-
-# scheduled-refresh-background 는 파일명에 -background 가 붙어
-# 자동으로 백그라운드 함수(최대 15분)로 동작하므로 별도 timeout 설정 불필요.
+# 영덕군청 수집은 느릴 수 있으므로 백그라운드 실행.
+[functions."refresh-background"]
+  background = true
 
 [[redirects]]
   from = "/api/rainfall"
