@@ -118,12 +118,13 @@ function renderRanking(rows) {
     };
   });
   items.sort((a, b) => (b.value || 0) - (a.value || 0));
-  const max = Math.max(1, ...items.map((i) => i.value || 0));
+  const max = Math.max(0, ...items.map((i) => Number(i.value) || 0));
 
   el.innerHTML = items
     .map((it, idx) => {
-      const pct = Math.max(3, ((it.value || 0) / max) * 100);
-      const hasRain = (it.value || 0) > 0;
+      const value = Number(it.value) || 0;
+      const hasRain = value > 0;
+      const pct = hasRain && max > 0 ? Math.max(3, (value / max) * 100) : 0;
       const rankColor =
         hasRain && idx === 0 ? "#fbbf24" : hasRain && idx === 1 ? "#cbd5e1" : hasRain && idx === 2 ? "#d97706" : "var(--muted)";
       const badge =
