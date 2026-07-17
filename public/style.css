@@ -126,6 +126,7 @@ html, body {
 .dot-unknown { background: var(--unknown); color: var(--unknown); }
 .dot-ok { background: var(--normal); color: var(--normal); }
 .dot-error { background: var(--critical); color: var(--critical); }
+.dot-stale { background: var(--high); color: var(--high); }
 
 /* ---------- Section ---------- */
 

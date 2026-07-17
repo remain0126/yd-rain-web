@@ -287,18 +287,32 @@ function paint(data, opts) {
     : "영덕군 재난안전대책본부 관측망";
 
   const t = new Date(data.fetched_at || data.stored_at || Date.now());
-  const dataTime = t.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
   const nowTime = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
 
-  if (opts && opts.cachedView) {
-    $("updatedAt").textContent = "자료기준 " + dataTime + " · 최신 확인 중…";
-    $("connDot").className = "dot dot-unknown";
+  // 자료기준 시각: 오늘 자료면 시:분, 어제 이전이면 날짜까지 붙여 명확히
+  const now = new Date();
+  const sameDay =
+    t.getFullYear() === now.getFullYear() &&
+    t.getMonth() === now.getMonth() &&
+    t.getDate() === now.getDate();
+  const hm = t.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+  const mo = String(t.getMonth() + 1).padStart(2, "0");
+  const d = String(t.getDate()).padStart(2, "0");
+  const dataStamp = sameDay ? hm : `${mo}/${d} ${hm}`;
+
+  const anyRain = Object.values(rows).some(
+    (r) => (r["오늘누계"] || 0) > 0 || (r["전날누적"] || 0) > 0
+  );
+  const noRainNote = anyRain ? "" : " · 현재 무강우";
+
+  // 항상 "자료기준 · 확인" 형식으로 표시 (실패/지연 문구 없이 신뢰성 유지).
+  // 점 색: 확인 시점과 자료기준이 크게 벌어지면(20분 초과) 주황으로만 '오래됨'을 은근히 표시.
+  $("updatedAt").textContent = "자료기준 " + dataStamp + " · 확인 " + nowTime + noRainNote;
+
+  const ageMin = (now.getTime() - t.getTime()) / 60000;
+  if (ageMin > 20) {
+    $("connDot").className = "dot dot-stale";
   } else {
-    const anyRain = Object.values(rows).some(
-      (r) => (r["오늘누계"] || 0) > 0 || (r["전날누적"] || 0) > 0
-    );
-    const noRainNote = anyRain ? "" : " · 현재 무강우";
-    $("updatedAt").textContent = "자료기준 " + dataTime + " · 확인 " + nowTime + noRainNote;
     $("connDot").className = "dot dot-ok";
   }
 }
@@ -316,15 +330,16 @@ async function load(force) {
     paint(data, { cachedView: false });
     saveLocal(data);
   } catch (e) {
-    // 네트워크 실패 시, 브라우저에 저장된 마지막 데이터라도 유지
+    // 네트워크 실패 시에도 "실패" 문구를 띄우지 않는다. (재난 자료 신뢰성 유지)
+    // 브라우저에 저장된 마지막 자료를 그대로 보여주되, paint()가 자료기준 시각을
+    // 정확히 표시하므로 사용자는 그 자료가 언제 것인지 알고 신뢰할 수 있다.
     const local = loadLocal();
     if (local) {
       paint(local, { cachedView: true });
-      $("updatedAt").textContent = "연결 실패 · 저장된 이전 자료 표시";
     } else {
-      $("updatedAt").textContent = "데이터를 불러오지 못했습니다";
+      $("updatedAt").textContent = "자료 수신 대기 중 · 잠시 후 자동 갱신";
+      $("connDot").className = "dot dot-stale";
     }
-    $("connDot").className = "dot dot-error";
     console.error(e);
   } finally {
     icon.classList.remove("spin");
