@@ -52,6 +52,17 @@ exports.handler = async function (event) {
       return reply(200, { ok: true, ...r });
     }
 
+    if (body.action === "ack") {
+      const { readSubs, writeSubs } = require("./_push");
+      const list = await readSubs(event);
+      const s = list.find((x) => x.endpoint === body.endpoint);
+      if (!s) return reply(404, { ok: false, error: "등록되지 않은 구독" });
+      s.ack = s.ack || {};
+      s.ack[body.key || "unknown"] = new Date().toISOString();
+      await writeSubs(list, event);
+      return reply(200, { ok: true, acked: body.key });
+    }
+
     if (body.action === "test") {
       if (!configured()) return reply(503, { ok: false, error: "VAPID 키 미설정" });
       const list = await readSubs(event);
