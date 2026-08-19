@@ -79,13 +79,47 @@ function splitTopLevel(s) {
   return out;
 }
 
-function includesArea(segment, area) {
-  if (!segment) return false;
-  return splitTopLevel(segment).some((a) => {
-    const name = a.replace(/\s+/g, "");
-    // "영덕" 정확 일치 또는 "영덕북부"처럼 세분구역으로 발표되는 경우까지 포괄
-    return name === area || name.startsWith(area);
+/**
+ * 도(道) 단위 표기를 해석한다. 기상청은 두 가지 형식을 섞어 쓴다.
+ *
+ *  나열형: 경상북도(구미, 영천, 영덕, 포항)        → 나열된 곳만 발효
+ *  제외형: 경상북도(문경, 울진산지 제외)            → 나열된 곳을 뺀 도 전역 발효
+ *
+ * 제외형을 나열형으로 잘못 읽으면 의미가 정반대가 된다(발효 중인데 없음으로 판정).
+ * 목록의 마지막 항목이 "제외"로 끝나면 제외형으로 본다.
+ */
+function provinceCoverage(line, province) {
+  const seg = provinceSegment(line, province);
+  if (seg === null) return { mode: "none", list: [] };
+
+  const items = splitTopLevel(seg);
+  const last = items.length ? items[items.length - 1] : "";
+
+  if (/제외\s*$/.test(last)) {
+    const list = items.map((s) => s.replace(/\s*제외\s*$/, "").trim()).filter(Boolean);
+    return { mode: "exclude", list };
+  }
+  return { mode: "include", list: items };
+}
+
+function areaIsUnder(line, province, area) {
+  const cov = provinceCoverage(line, province);
+  if (cov.mode === "none") return false;
+
+  const norm = (s) => String(s).replace(/\s+/g, "");
+
+  if (cov.mode === "include") {
+    // "영덕" 정확 일치 또는 "영덕군"·"영덕평지"처럼 세분 표기까지 포괄
+    return cov.list.some((a) => norm(a).startsWith(area));
+  }
+
+  // 제외형: 도 전역이 대상이며, 영덕이 통째로 빠진 경우에만 미발효로 본다.
+  // "영덕산지 제외"처럼 일부만 빠진 경우는 나머지 지역이 여전히 발효 중이므로 발효로 취급한다.
+  const fullyExcluded = cov.list.some((a) => {
+    const n = norm(a);
+    return n === area || n === area + "군" || n === area + "시";
   });
+  return !fullyExcluded;
 }
 
 /**
@@ -106,8 +140,7 @@ function parseWarnings(text) {
     const kind = m[1].trim();
     const body = m[2];
 
-    const seg = provinceSegment(body, PROVINCE);
-    if (!includesArea(seg, AREA)) continue;
+    if (!areaIsUnder(body, PROVINCE, AREA)) continue;
 
     hits.push(kind);
   }
