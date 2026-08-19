@@ -61,7 +61,9 @@ self.addEventListener("push", (e) => {
     renotify: true,
     requireInteraction: !!d.sticky,
     vibrate: d.sticky ? [200, 100, 200, 100, 200] : [200, 100, 200],
-    data: { url: d.url || "/" },
+    // "확인"을 누르면 그 사람에게는 이 상황에 대한 반복 알림이 멈춘다
+    actions: d.key ? [{ action: "ack", title: "확인" }] : [],
+    data: { url: d.url || "/", key: d.key || null },
   };
 
   e.waitUntil(self.registration.showNotification(title, options));
@@ -70,7 +72,23 @@ self.addEventListener("push", (e) => {
 // 알림을 누르면 앱을 열거나, 이미 열려 있으면 그 창으로 이동한다.
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
-  const target = (e.notification.data && e.notification.data.url) || "/";
+  const data = e.notification.data || {};
+  const target = data.url || "/";
+
+  // 확인 버튼: 서버에 알려 반복을 멈추게 하고, 앱은 열지 않는다
+  if (e.action === "ack" && data.key) {
+    e.waitUntil(
+      self.registration.pushManager.getSubscription().then((sub) => {
+        if (!sub) return;
+        return fetch("/api/push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "ack", endpoint: sub.endpoint, key: data.key }),
+        }).catch(() => {});
+      })
+    );
+    return;
+  }
 
   e.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
