@@ -5,11 +5,10 @@
 //   2) 상황을 판정해 조건에 맞으면 구독자에게 푸시를 보낸다
 //
 // 발송 규칙 (확정)
-//   - 관심단계 이상이거나 기상특보가 바뀌면 발송
-//   - 1분 간격으로 15회까지 몰아친 뒤, 그래도 미확인이면 10분 간격으로 계속
+//   - 관심단계 이상: 1분 간격 15회 몰아친 뒤, 미확인이면 10분 간격으로 계속
 //   - 알림의 "확인"을 누른 사람은 그 상황에 대해 중단
 //   - 단계가 오르면 확인이 무효가 되고 1분 몰아치기를 다시 시작
-//   - 상황이 끝나면 해제 알림을 1회 보낸다
+//   - 폭염·한파 등 그 밖의 특보는 변동 시 1회만 알린다(상향·하향 구분)
 
 const { buildData } = require("./_build");
 const { getWarning } = require("./_warning");
@@ -24,7 +23,7 @@ const SLOW_MS = 10 * 60 * 1000; // 그 이후 간격
 const REFRESH_AFTER_MS = 4.5 * 60 * 1000; // 자료가 이만큼 묵으면 새로 수집
 
 const RANK = { extreme: 0, critical: 1, high: 2, low: 3, normal: 4 };
-const ALERT_FROM = RANK.low; // 관심단계부터 발송
+const ALERT_FROM = RANK.low; // 관심단계부터 반복 발송
 
 function blobStore(event) {
   try {
@@ -48,9 +47,6 @@ function rainStore(event) {
 
 // ---------- 상황 판정 ----------
 
-/**
- * 스냅샷과 특보를 합쳐 지금 상황을 요약한다.
- */
 function assess(snap, warn) {
   const rows = (snap && snap.rows) || {};
 
@@ -87,7 +83,6 @@ function assess(snap, warn) {
     mm3: worst ? worst.recent_3h_mm : 0,
     mm12: worst ? worst.recent_12h_mm : 0,
     warnings,
-    // 상태키: 단계나 특보가 바뀌면 새 상황으로 보고 확인이 무효가 된다
     key: `${level}|${warnings.join(",")}`,
   };
 }
@@ -106,7 +101,7 @@ function buildPayload(now, prev) {
     body: parts.join("\n") || "상황을 확인해 주세요.",
     tag: "yd-rain-alert",
     url: "/",
-    sticky: now.rank <= RANK.critical, // 경보급 이상은 손으로 닫을 때까지 남는다
+    sticky: now.rank <= RANK.critical,
     key: now.key,
     level: now.level,
   };
@@ -129,7 +124,6 @@ async function dispatch(now, prev, event) {
 
     const rec = (s.sent && s.sent[now.key]) || { count: 0, at: 0 };
     const gap = rec.count < BURST_COUNT ? BURST_MS : SLOW_MS;
-    // 첫 발송은 즉시, 이후에는 간격이 지나야 발송
     if (rec.count > 0 && t - rec.at < gap - 5000) continue;
 
     targets.push({ sub: s, rec });
@@ -140,7 +134,6 @@ async function dispatch(now, prev, event) {
   const payload = buildPayload(now, prev);
   const res = await sendMany(targets.map((x) => x.sub), payload, event);
 
-  // 발송 기록 갱신 (오래된 상태키는 정리해 용량이 늘지 않게 한다)
   const fresh = await readSubs(event);
   for (const s of fresh) {
     const hit = targets.find((x) => x.sub.endpoint === s.endpoint);
@@ -151,6 +144,72 @@ async function dispatch(now, prev, event) {
   await writeSubs(fresh, event);
 
   return { ...res, targets: targets.length, subs: subs.length };
+}
+
+// 특보 이름을 계열과 등급으로 나눈다 (숫자가 작을수록 심각)
+//   폭염중대경보 → 폭염 / 0,  폭염경보 → 폭염 / 1,  폭염주의보 → 폭염 / 2
+function parseGrade(label) {
+  if (/중대경보$/.test(label)) return { family: label.replace(/중대경보$/, ""), grade: 0 };
+  if (/경보$/.test(label)) return { family: label.replace(/경보$/, ""), grade: 1 };
+  if (/주의보$/.test(label)) return { family: label.replace(/주의보$/, ""), grade: 2 };
+  return { family: label, grade: 9 };
+}
+
+function gradeMap(list) {
+  const m = new Map();
+  for (const label of list || []) {
+    const g = parseGrade(label);
+    const cur = m.get(g.family);
+    if (!cur || g.grade < cur.grade) m.set(g.family, { ...g, label });
+  }
+  return m;
+}
+
+/**
+ * 특보 목록이 바뀌었을 때 1회만 알린다. 같은 계열의 등급 변화는 상향·하향으로 구분한다.
+ */
+async function dispatchWarningChange(now, prev, event) {
+  if (!configured()) return { skipped: "VAPID 미설정" };
+  const subs = await readSubs(event);
+  if (!subs.length) return { skipped: "구독자 없음" };
+
+  const before = gradeMap(prev && prev.warnings);
+  const after = gradeMap(now.warnings);
+
+  const up = [], down = [], added = [], removed = [];
+
+  for (const [family, a] of after) {
+    const b = before.get(family);
+    if (!b) added.push(a.label);
+    else if (a.grade < b.grade) up.push(`${b.label} → ${a.label}`);
+    else if (a.grade > b.grade) down.push(`${b.label} → ${a.label}`);
+  }
+  for (const [family, b] of before) {
+    if (!after.has(family)) removed.push(b.label);
+  }
+
+  const lines = [];
+  if (up.length) lines.push("상향 " + up.join(" · "));
+  if (added.length) lines.push("발효 " + added.join(" · "));
+  if (down.length) lines.push("하향 " + down.join(" · "));
+  if (removed.length) lines.push("해제 " + removed.join(" · "));
+  if (!lines.length) return { skipped: "변동 없음" };
+
+  const title = up.length
+    ? "영덕군 기상특보 상향"
+    : added.length
+      ? "영덕군 기상특보 발효"
+      : down.length
+        ? "영덕군 기상특보 하향"
+        : removed.length
+          ? "영덕군 기상특보 해제"
+          : "영덕군 기상특보 변동";
+
+  return sendMany(
+    subs,
+    { title, body: lines.join("\n"), tag: "yd-rain-warning", url: "/" },
+    event
+  );
 }
 
 async function dispatchClear(prev, event) {
@@ -170,7 +229,6 @@ async function dispatchClear(prev, event) {
     event
   );
 
-  // 새 상황을 위해 기록을 비운다
   const fresh = await readSubs(event);
   for (const s of fresh) {
     s.sent = {};
@@ -185,7 +243,6 @@ async function dispatchClear(prev, event) {
 exports.handler = async function (event) {
   const q = (event && event.queryStringParameters) || {};
 
-  // 외부에서 아무나 부르지 못하게 토큰으로 막는다
   const need = process.env.WATCH_TOKEN;
   if (need && q.token !== need) {
     return { statusCode: 401, body: JSON.stringify({ ok: false, error: "인증 실패" }) };
@@ -226,14 +283,20 @@ exports.handler = async function (event) {
     } catch (_) {}
 
     // 4) 발송 판단
-    const active = now.rank <= ALERT_FROM || now.warnings.length > 0;
-    const wasActive = prev && (prev.rank <= ALERT_FROM || (prev.warnings || []).length > 0);
+    const active = now.rank <= ALERT_FROM;
+    const wasActive = !!(prev && prev.rank <= ALERT_FROM);
+    const prevWarnings = (prev && prev.warnings) || [];
+    const warningsChanged =
+      !!prev && JSON.stringify(prevWarnings.slice().sort()) !== JSON.stringify(now.warnings);
 
     if (active) {
       log.dispatch = await dispatch(now, prev, event);
     } else if (wasActive) {
       log.dispatch = await dispatchClear(prev, event);
       log.cleared = true;
+    } else if (warningsChanged) {
+      log.dispatch = await dispatchWarningChange(now, prev, event);
+      log.warning_change = true;
     } else {
       log.dispatch = { skipped: "평상시" };
     }
