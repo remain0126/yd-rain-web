@@ -29,6 +29,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/watch"
+  to = "/.netlify/functions/watch"
+  status = 200
+
+[[redirects]]
   from = "/api/push"
   to = "/.netlify/functions/push"
   status = 200
