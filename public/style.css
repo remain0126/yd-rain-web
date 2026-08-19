@@ -96,6 +96,55 @@ html, body {
 }
 .manager-info .mi-tel:active { opacity: 0.7; }
 
+/* 알림 미설정 경고 띠 — 켤 때까지 사라지지 않는다 */
+.push-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--critical);
+  background: color-mix(in srgb, var(--critical) 14%, transparent);
+  animation: pbPulse 2.2s ease-in-out infinite;
+}
+.pb-text {
+  flex: 1;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--critical);
+}
+.pb-text small { display: block; font-weight: 500; color: var(--muted); margin-top: 2px; }
+.pb-btn {
+  flex-shrink: 0;
+  padding: 7px 13px;
+  border-radius: 8px;
+  border: none;
+  background: var(--critical);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.pb-btn:active { transform: scale(0.96); }
+@keyframes pbPulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--critical) 40%, transparent); }
+  50% { box-shadow: 0 0 0 6px transparent; }
+}
+
+.push-note {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.push-note b { color: var(--text); font-weight: 700; }
+
 .refresh-btn {
   width: 44px;
   height: 44px;

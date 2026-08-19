@@ -1,6 +1,6 @@
 // service worker: 앱 셸(정적 파일)만 캐시. 강우 데이터(/api/rainfall)는
 // 항상 네트워크에서 최신으로 받아온다 (재난 대응 특성상 실시간이 중요).
-const CACHE = "yd-rain-v13";
+const CACHE = "yd-rain-v15";
 const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -38,5 +38,49 @@ self.addEventListener("fetch", (e) => {
         return resp;
       })
       .catch(() => caches.match(e.request))
+  );
+});
+
+// ---------- 웹 푸시 ----------
+// 서버가 보낸 알림을 받아 화면에 띄운다.
+self.addEventListener("push", (e) => {
+  let d = {};
+  try {
+    d = e.data ? e.data.json() : {};
+  } catch (_) {
+    d = { title: "영덕군 강우상황", body: e.data ? e.data.text() : "" };
+  }
+
+  const title = d.title || "영덕군 강우상황";
+  const options = {
+    body: d.body || "",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    // 같은 tag면 이전 알림을 덮어쓴다(알림이 쌓이지 않게)
+    tag: d.tag || "yd-rain",
+    renotify: true,
+    requireInteraction: !!d.sticky,
+    vibrate: d.sticky ? [200, 100, 200, 100, 200] : [200, 100, 200],
+    data: { url: d.url || "/" },
+  };
+
+  e.waitUntil(self.registration.showNotification(title, options));
+});
+
+// 알림을 누르면 앱을 열거나, 이미 열려 있으면 그 창으로 이동한다.
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const target = (e.notification.data && e.notification.data.url) || "/";
+
+  e.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ("focus" in c) {
+          if ("navigate" in c) c.navigate(target);
+          return c.focus();
+        }
+      }
+      return clients.openWindow(target);
+    })
   );
 });

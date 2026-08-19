@@ -361,6 +361,21 @@ function paint(data, opts) {
   if (data.kma_warning && data.kma_warning.ok) KMA_WARN = data.kma_warning;
 
   renderCenters(rows);
+
+  // 상황실 경보음: 세 센터 중 가장 높은 단계가 직전보다 올라가면 울린다
+  try {
+    const worstRank = CENTERS.reduce((acc, c) => {
+      const names = (c.towns || []).map((t) => t);
+      let r = 4;
+      for (const n of names) {
+        const row = rows[n];
+        if (row && RANK[row.risk_key] != null) r = Math.min(r, RANK[row.risk_key]);
+      }
+      return Math.min(acc, r);
+    }, 4);
+    const kmaRank = KMA_WARN && KMA_WARN.ok && KMA_WARN.level_key ? RANK[KMA_WARN.level_key] : 4;
+    checkAlarm(Math.min(worstRank, kmaRank == null ? 4 : kmaRank));
+  } catch (_) {}
   renderRanking(rows);
   renderDetail(rows, columns);
 
@@ -492,3 +507,226 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   });
 }
+
+// ---------- 웹 푸시 (강제 방식) ----------
+//
+// 앱 안에서는 알림을 끌 수 없다. 켜지 않은 상태면 상단에 붉은 경고 띠가
+// 계속 떠 있고, 켜면 사라진다. 끄려면 휴대폰 설정에 직접 들어가야 한다.
+//
+// 브라우저 정책상 "권한 허용"만은 사용자가 직접 눌러야 한다. 우회할 수 없으므로
+// 대신 켤 때까지 경고를 계속 노출하는 방식으로 사실상 강제한다.
+
+const pushBanner = document.getElementById("pushBanner");
+const pushBannerText = document.getElementById("pushBannerText");
+const pushBannerBtn = document.getElementById("pushBannerBtn");
+const pushNote = document.getElementById("pushNote");
+
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+const isStandalone =
+  window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+
+function banner(html, btnLabel, onClick) {
+  if (!pushBanner) return;
+  pushBanner.hidden = false;
+  pushBannerText.innerHTML = html;
+  if (btnLabel) {
+    pushBannerBtn.hidden = false;
+    pushBannerBtn.textContent = btnLabel;
+    pushBannerBtn.onclick = onClick;
+  } else {
+    pushBannerBtn.hidden = true;
+    pushBannerBtn.onclick = null;
+  }
+}
+function hideBanner() {
+  if (pushBanner) pushBanner.hidden = true;
+}
+function note(html) {
+  if (!pushNote) return;
+  pushNote.innerHTML = html;
+  pushNote.hidden = false;
+  setTimeout(() => { if (pushNote) pushNote.hidden = true; }, 6000);
+}
+
+function urlBase64ToUint8Array(base64) {
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const b64 = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(b64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+async function currentSub() {
+  const reg = await navigator.serviceWorker.ready;
+  return reg.pushManager.getSubscription();
+}
+
+// 권한이 이미 허용된 상태면 사용자 조작 없이 조용히 등록한다.
+async function subscribeSilently() {
+  const info = await fetch("/api/push").then((r) => r.json());
+  if (!info.configured || !info.public_key) throw new Error("서버 알림 설정 없음");
+
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(info.public_key),
+    });
+  }
+
+  const res = await fetch("/api/push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "subscribe", subscription: sub.toJSON() }),
+  }).then((r) => r.json());
+
+  if (!res.ok) throw new Error(res.error || "등록 실패");
+  return sub;
+}
+
+async function requestAndSubscribe() {
+  const perm = await Notification.requestPermission();
+  if (perm === "granted") {
+    try {
+      await subscribeSilently();
+      hideBanner();
+      note("알림이 <b>켜졌습니다</b>.");
+    } catch (e) {
+      banner("알림 등록에 실패했습니다.<small>" + String(e && e.message) + "</small>", "다시 시도", requestAndSubscribe);
+    }
+    return;
+  }
+  if (perm === "denied") {
+    banner(
+      "알림이 <b>차단</b>되어 있습니다 — 재난 상황을 받을 수 없습니다." +
+        "<small>휴대폰 설정 → 브라우저 → 알림에서 이 사이트를 허용해 주세요.</small>"
+    );
+    return;
+  }
+  banner("알림이 <b>꺼져 있습니다</b> — 재난 상황을 받을 수 없습니다.", "지금 켜기", requestAndSubscribe);
+}
+
+async function initPush() {
+  if (!pushBanner) return;
+
+  const supported =
+    "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+  if (!supported) {
+    if (isIOS && !isStandalone) {
+      banner(
+        "이 화면에서는 알림을 받을 수 없습니다." +
+          "<small>사파리 아래 공유 버튼 → '홈 화면에 추가' 후, 추가된 아이콘으로 열어 주세요.</small>"
+      );
+    } else {
+      banner("이 브라우저는 알림을 지원하지 않습니다.<small>크롬 또는 사파리를 사용해 주세요.</small>");
+    }
+    return;
+  }
+
+  if (Notification.permission === "granted") {
+    try {
+      await subscribeSilently();
+      hideBanner();
+    } catch (_) {
+      banner("알림 등록을 확인하지 못했습니다.", "다시 시도", requestAndSubscribe);
+    }
+    return;
+  }
+
+  if (Notification.permission === "denied") {
+    banner(
+      "알림이 <b>차단</b>되어 있습니다 — 재난 상황을 받을 수 없습니다." +
+        "<small>휴대폰 설정 → 브라우저 → 알림에서 이 사이트를 허용해 주세요.</small>"
+    );
+    return;
+  }
+
+  banner("알림이 <b>꺼져 있습니다</b> — 재난 상황을 받을 수 없습니다.", "지금 켜기", requestAndSubscribe);
+}
+
+// 새로고침 버튼을 길게 누르면 시험 알림을 보낸다 (별도 버튼 없이 점검용)
+(function bindPushTest() {
+  const btn = document.getElementById("refreshBtn");
+  if (!btn) return;
+  let timer = null;
+  let long = false;
+  btn.addEventListener("pointerdown", () => {
+    long = false;
+    timer = setTimeout(async () => {
+      long = true;
+      const sub = await currentSub().catch(() => null);
+      if (!sub) return note("먼저 알림을 켜 주세요.");
+      note("시험 발송 중…");
+      const res = await fetch("/api/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "test", endpoint: sub.endpoint }),
+      }).then((r) => r.json()).catch(() => null);
+      note(res && res.ok && res.sent > 0
+        ? "시험 알림을 보냈습니다."
+        : "시험 발송 실패: " + (res && res.error ? res.error : "알 수 없는 오류"));
+    }, 800);
+  });
+  btn.addEventListener("pointerup", () => clearTimeout(timer));
+  btn.addEventListener("pointerleave", () => clearTimeout(timer));
+  btn.addEventListener("click", (e) => { if (long) { e.preventDefault(); e.stopPropagation(); } }, true);
+})();
+
+// ---------- 상황실 경보음 ----------
+//
+// 화면을 열어둔 PC에서 단계가 오르면 소리로 알린다. 알림 권한과 무관하게 동작한다.
+// 다만 브라우저 정책상 사용자가 화면을 한 번이라도 누른 뒤에야 소리가 난다.
+
+let audioCtx = null;
+let lastAlarmRank = null;
+
+function unlockAudio() {
+  if (audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  } catch (_) {}
+}
+document.addEventListener("pointerdown", unlockAudio, { once: true });
+document.addEventListener("keydown", unlockAudio, { once: true });
+
+// 단계가 높을수록 더 급하게 울린다
+function playAlarm(rank) {
+  if (!audioCtx) return;
+  if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+
+  const plan =
+    rank <= 1 ? { beeps: 5, freq: 1180, gap: 0.26, len: 0.2 } // 경보급 이상
+      : rank === 2 ? { beeps: 3, freq: 940, gap: 0.32, len: 0.2 } // 주의보급
+        : { beeps: 2, freq: 760, gap: 0.4, len: 0.18 }; // 관심단계
+
+  const t0 = audioCtx.currentTime;
+  for (let i = 0; i < plan.beeps; i++) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "square";
+    osc.frequency.value = plan.freq;
+    const st = t0 + i * plan.gap;
+    gain.gain.setValueAtTime(0.0001, st);
+    gain.gain.exponentialRampToValueAtTime(0.18, st + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, st + plan.len);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(st);
+    osc.stop(st + plan.len + 0.05);
+  }
+}
+
+// paint()가 부른다. 단계가 이전보다 올라갔을 때만 울린다.
+function checkAlarm(worstRank) {
+  if (worstRank == null || worstRank >= 4) { // 4 = 양호
+    lastAlarmRank = worstRank;
+    return;
+  }
+  if (lastAlarmRank == null) { lastAlarmRank = worstRank; return; }
+  if (worstRank < lastAlarmRank) playAlarm(worstRank);
+  lastAlarmRank = worstRank;
+}
+
+initPush();
