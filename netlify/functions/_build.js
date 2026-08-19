@@ -5,6 +5,7 @@
 const { scrape } = require("./_scrape");
 const { mergeHistory, readHistory, computeWindows } = require("./_history");
 const { classify, tiersForClient, NORMAL } = require("./_tiers");
+const { getWarning } = require("./_warning");
 
 /**
  * @param {boolean} persist true면 이력을 저장소에 병합 저장(주기 수집/최신화 시).
@@ -47,6 +48,14 @@ async function buildData(persist = true, event = null, timeoutMs) {
 
   data.tiers = tiersForClient();
   data.normal = NORMAL;
+
+  // 기상청 특보(영덕군)는 강우 판정과 독립적으로 덧붙인다.
+  // 여기서 실패하더라도 강우 자료 자체에는 영향이 없어야 한다.
+  try {
+    data.kma_warning = await getWarning(false, undefined, event);
+  } catch (_) {
+    data.kma_warning = null;
+  }
 
   return data;
 }

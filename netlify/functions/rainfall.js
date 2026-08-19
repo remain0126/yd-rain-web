@@ -5,6 +5,10 @@
 const SNAPSHOT_STALE_MS = 10 * 60 * 1000;
 const REFRESH_AFTER_MS = 5 * 60 * 1000;
 
+// 특보는 강우 스냅샷(5분 주기)보다 자주 바뀔 수 있으므로 응답 시점에 한 번 더 확인한다.
+const { getWarning } = require("./_warning");
+const WARNING_TIMEOUT_MS = 3500;
+
 function safeStore(name, event) {
   try {
     const blobs = require("@netlify/blobs");
@@ -80,11 +84,18 @@ exports.handler = async function (event) {
 
   // 저장된 자료가 있으면 즉시 반환하고, 새 수집은 뒤에서 진행한다.
   if (snap) {
+    // 특보만 응답 시점 기준으로 갱신한다. 실패하면 스냅샷에 저장된 값을 그대로 쓴다.
+    let warn = null;
+    try {
+      warn = await getWarning(false, WARNING_TIMEOUT_MS, event);
+    } catch (_) {}
+
     return {
       statusCode: 200,
       headers: responseHeaders(forceFresh),
       body: JSON.stringify({
         ...snap,
+        kma_warning: warn && warn.ok ? warn : snap.kma_warning || null,
         stale: ageMs >= SNAPSHOT_STALE_MS,
         refresh_requested: !!(dispatch && dispatch.ok),
         refresh_status: dispatch && dispatch.status ? dispatch.status : undefined,
