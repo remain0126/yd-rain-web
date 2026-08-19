@@ -1,8 +1,8 @@
 :root {
-  --normal: #34d399;
-  --low: #fbbf24;
-  --high: #fb923c;
-  --critical: #f43f5e;
+  --normal: #00F57A;
+  --low: #FFE600;
+  --high: #FF7A00;
+  --critical: #FF0033;
   --unknown: #64748b;
 
   --bg: #0a0f16;
@@ -190,6 +190,36 @@ html, body {
 
 /* 극한호우 등 어두운 배경색에서는 흰 글자로 (가독성) */
 .cc-badge.dark-bg, .tier-c-badge.dark-bg { color: #fff; }
+
+/* 기상청 특보 칩 (영덕군 단위, 특보 없으면 렌더링되지 않음) */
+.cc-alerts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-top: 9px;
+}
+.cc-alerts-k {
+  font-size: 0.66rem;
+  color: var(--muted);
+  margin-right: 1px;
+}
+.cc-alert {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.cc-alerts-t {
+  font-size: 0.64rem;
+  color: var(--muted);
+  margin-left: 2px;
+  white-space: nowrap;
+}
+.cc-alert-major { color: #fff; }
 
 .cc-metrics {
   display: flex;
@@ -384,3 +414,5 @@ details[open] .chev { transform: rotate(180deg); }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+.cc-alert small { font-weight: 600; opacity: 0.75; font-size: 0.92em; margin-left: 3px; }

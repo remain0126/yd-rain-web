@@ -1,6 +1,6 @@
 // 영덕 강우 감시 - 모바일 PWA 프론트엔드
 
-const REFRESH_MS = 5 * 60 * 1000;
+const REFRESH_MS = 60 * 1000;
 
 const EUPMYEON_ORDER = [
   "강구면", "남정면", "달산면", "병곡면", "영덕읍",
@@ -18,8 +18,11 @@ const CENTERS = [
 
 // 강우 단계 기준은 서버(_tiers.js)에서 내려받는다 (기준을 한 곳에서만 관리)
 let TIERS = [];
-let NORMAL = { key: "normal", label: "양호", color: "#34d399", actions: ["평시 모니터링"] };
+let NORMAL = { key: "normal", label: "양호", color: "#00F57A", actions: ["평시 모니터링"] };
 const RANK = { extreme: 0, critical: 1, high: 2, low: 3, normal: 4 };
+
+// 기상청이 영덕군에 실제 발효한 특보 (호우·폭염·강풍 등 전체)
+let KMA_WARN = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -30,7 +33,7 @@ function heatColor(v) {
   if (v < 5) return "#0ea5e9";
   if (v < 10) return "#2563eb";
   if (v < 20) return "#a855f7";
-  return "#f43f5e";
+  return "#FF0033";
 }
 
 function fmtMm(v) {
@@ -49,6 +52,80 @@ function isDarkColor(hex) {
 }
 
 // ---------- Center status ----------
+
+// ISO 시각 → "18:00"
+function fmtHm(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Seoul",
+  });
+}
+
+// 기상청 특보 시각 표기 (YYYYMMDDHHmm → "8.18 18:00")
+function fmtTmKma(s) {
+  if (!s || String(s).length < 12) return "";
+  const v = String(s);
+  return `${Number(v.slice(4, 6))}.${Number(v.slice(6, 8))} ${v.slice(8, 10)}:${v.slice(10, 12)}`;
+}
+
+// 기상청 특보 칩. 영덕군은 단일 특보구역이라 3개 센터에 동일하게 표시된다.
+// 특보가 하나도 없으면 빈 문자열을 반환해 줄 자체가 생기지 않게 한다.
+function warnChips() {
+  const w = KMA_WARN;
+  if (!w || !w.ok || !Array.isArray(w.all) || !w.all.length) return "";
+  const heldMap = {};
+  if (Array.isArray(w.held)) {
+    for (const h of w.held) if (h && h.label) heldMap[h.label] = h.until;
+  }
+  const chips = w.all
+    .map((label) => {
+      // 새 색을 만들지 않고 기존 팔레트만 재사용: 경보=적색, 주의보=황색
+      const color = /경보$/.test(label) ? "#FF0033" : "#FFE600";
+      // 해제 예정이지만 발효시각까지 유지 중인 특보임을 밝힌다
+      const until = heldMap[label];
+      const tail = until ? ` <small>${fmtHm(until)} 해제예정</small>` : "";
+      // 중대경보는 특보 체계의 최상위 단계다(2026.6 신설 폭염중대경보 등).
+      // 일반 경보와 같은 색이면 구분이 안 되므로 배경을 채워 무게를 준다.
+      if (/중대경보$/.test(label)) {
+        return `<span class="cc-alert cc-alert-major" style="background:${color};border-color:${color};">${label}${tail}</span>`;
+      }
+      return `<span class="cc-alert" style="background:${color}1f;color:${color};border-color:${color}55;">${label}${tail}</span>`;
+    })
+    .join("");
+  // 특보현황은 "발효시각 이후의 상태"를 담고 있어 발표시각보다 앞서 있을 수 있다.
+  // 어느 시점 기준인지 사람이 판단할 수 있도록 시각을 드러낸다.
+  const ef = fmtTmKma(w.tm_ef);
+  const timeNote = ef ? `<span class="cc-alerts-t">${ef} 발효 기준</span>` : "";
+  return `<div class="cc-alerts"><span class="cc-alerts-k">기상특보</span>${chips}${timeNote}</div>`;
+}
+
+// 강풍특보로 승격된 경우에 쓰는 조치사항.
+// 강우용 문구("주민 대피 준비 통보" 등)를 그대로 쓰면 상황과 맞지 않으므로 따로 둔다.
+// 문구는 필요에 따라 이 자리에서 수정하면 된다.
+const WIND_ACTIONS = {
+  "강풍주의보": ["간판·가설물 낙하 대비", "산불 확산 위험 확인", "안전조치 출동 대비"],
+  "강풍경보": ["시설물 피해 신고 급증 대비", "산불 확산 고위험 경계", "인접 센터 공조 태세 확인"],
+};
+
+// 기상청이 실제 발효한 호우·태풍·강풍특보를 반영해 단계를 끌어올린다.
+// 자체 계산이 더 높으면(예: 극한호우) 자체 계산을 그대로 유지한다 → 어느 쪽도 놓치지 않는다.
+// 승격된 경우 배지 문구는 실제 특보명을 쓴다 (태풍경보를 "호우경보"로 표시하지 않기 위함).
+function applyKmaLevel(worst) {
+  const w = KMA_WARN;
+  if (!w || !w.ok || !w.level_key) return worst;
+  const kmaTier = TIERS.find((x) => x.key === w.level_key);
+  if (!kmaTier) return worst;
+  if ((RANK[kmaTier.key] ?? 9) >= (RANK[worst.key] ?? 9)) return worst;
+  const raised = { ...kmaTier, label: w.level_label || kmaTier.label };
+  if (w.level_family === "wind" && WIND_ACTIONS[w.level_label]) {
+    raised.actions = WIND_ACTIONS[w.level_label];
+  }
+  return raised;
+}
 
 function renderCenters(rows) {
   const el = $("centerStatus");
@@ -70,7 +147,7 @@ function renderCenters(rows) {
       if (r.window_complete_12h === false) incomplete12 = true;
       if (key !== "normal") elevated.push(dn(t));
     });
-    return { c, worst, m1, m3, m12, elevated, incomplete3, incomplete12 };
+    return { c, worst: applyKmaLevel(worst), m1, m3, m12, elevated, incomplete3, incomplete12 };
   });
 
   el.innerHTML = cards
@@ -90,6 +167,7 @@ function renderCenters(rows) {
             <span class="cc-name">${c.name}<small>119안전센터</small></span>
             <span class="cc-badge ${isNormal ? "normal" : ""} ${!isNormal && isDarkColor(worst.color) ? "dark-bg" : ""}">${worst.label}</span>
           </div>
+          ${warnChips()}
           <div class="cc-metrics">
             <div class="cc-metric"><span class="k">1시간</span><span class="v">${fmtMm(m1)}</span></div>
             <div class="cc-metric"><span class="k">3시간</span><span class="v">${incomplete3 ? "0mm" : fmtMm(m3)}</span></div>
@@ -126,7 +204,7 @@ function renderRanking(rows) {
       const hasRain = value > 0;
       const pct = hasRain && max > 0 ? Math.max(3, (value / max) * 100) : 0;
       const rankColor =
-        hasRain && idx === 0 ? "#fbbf24" : hasRain && idx === 1 ? "#cbd5e1" : hasRain && idx === 2 ? "#d97706" : "var(--muted)";
+        hasRain && idx === 0 ? "#FFE600" : hasRain && idx === 1 ? "#cbd5e1" : hasRain && idx === 2 ? "#d97706" : "var(--muted)";
       const badge =
         it.riskKey !== "normal"
           ? `<span class="rk-badge" style="background:${it.riskColor}22;color:${it.riskColor};">${it.riskLabel}</span>`
@@ -176,7 +254,7 @@ function sparkline(hourValues, nowIdx) {
   const nowMarker = (h2) => {
     if (nowIdx == null || nowIdx < 0 || nowIdx >= n) return "";
     const nx = nowIdx * SP_W + SP_W / 2;
-    return `<line x1="${nx}" y1="0" x2="${nx}" y2="${h2}" stroke="#f43f5e" stroke-width="1.2" stroke-dasharray="3,3" opacity="0.7"/>`;
+    return `<line x1="${nx}" y1="0" x2="${nx}" y2="${h2}" stroke="#FF0033" stroke-width="1.2" stroke-dasharray="3,3" opacity="0.7"/>`;
   };
 
   if (!known.length) {
@@ -278,6 +356,9 @@ function paint(data, opts) {
     if (data.normal) NORMAL = data.normal;
     renderTierCards();
   }
+
+  // 기상청 특보 반영 (조회 실패 시에는 직전 값을 유지해 표시가 깜빡이지 않게 한다)
+  if (data.kma_warning && data.kma_warning.ok) KMA_WARN = data.kma_warning;
 
   renderCenters(rows);
   renderRanking(rows);
@@ -390,7 +471,20 @@ const cached = loadLocal();
 if (cached) paint(cached, { cachedView: true });
 
 load();
-setInterval(load, REFRESH_MS);
+// 1분 주기 자동 새로고침.
+// 화면을 보지 않는 동안에는 멈추고, 다시 돌아오면 즉시 한 번 갱신한다.
+// (불필요한 호출을 줄이면서, 복귀 시점에는 최신 상태를 바로 보여주기 위함)
+let refreshTimer = setInterval(load, REFRESH_MS);
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  } else if (!refreshTimer) {
+    load();
+    refreshTimer = setInterval(load, REFRESH_MS);
+  }
+});
 
 // PWA service worker 등록
 if ("serviceWorker" in navigator) {
