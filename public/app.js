@@ -373,7 +373,8 @@ function paint(data, opts) {
     const kmaRank = KMA_WARN && KMA_WARN.ok && KMA_WARN.level_key ? RANK[KMA_WARN.level_key] : 4;
     const overall = Math.min(worstRank, kmaRank == null ? 4 : kmaRank);
     checkAlarm(overall);
-    // 화면을 보고 있으면 확인한 것으로 처리해 반복 알림을 멈춘다
+    curRank = overall;
+    if (typeof renderAckBar === "function") renderAckBar();
     if (typeof ackCurrent === "function") ackCurrent(overall);
   } catch (_) {}
   renderRanking(rows);
@@ -808,27 +809,78 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// ---------- 앱을 열면 자동 확인 ----------
+// ---------- 확인 처리 ----------
 //
-// 화면을 보고 있다는 건 상황을 인지했다는 뜻이므로 반복 알림을 멈춘다.
-// 알림 버튼을 정확히 누르지 못하는 경우에도 확실히 멈추게 하기 위한 장치다.
-// 단계가 더 나빠지면 서버가 확인을 무효로 하고 다시 알린다.
+// 알림 버튼에만 의존하면 서비스워커 상태나 알림 종류에 따라 실패한다.
+// 그래서 앱 안에 확인 버튼을 두고, 화면을 열어두면 자동으로도 확인 처리한다.
 
 let lastAckRank = null;
+let curRank = null;
 
+async function postAck(rank) {
+  const sub = await navigator.serviceWorker.ready
+    .then((r) => r.pushManager.getSubscription())
+    .catch(() => null);
+  if (!sub) throw new Error("알림이 켜져 있지 않습니다");
+
+  const res = await fetch("/api/push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "ack", endpoint: sub.endpoint, rank }),
+  }).then((r) => r.json());
+
+  if (!res.ok) throw new Error(res.error || "확인 실패");
+  lastAckRank = rank;
+  return res;
+}
+
+// 화면을 보고 있으면 자동으로 확인 처리 (단계가 더 나빠지면 서버가 무효화한다)
 async function ackCurrent(rank) {
-  if (rank == null || rank > RANK.low) return; // 관심단계 미만이면 알릴 것이 없다
-  if (lastAckRank !== null && rank >= lastAckRank) return; // 같은 수준은 다시 보내지 않는다
+  if (rank == null || rank > RANK.low) return;
+  if (lastAckRank !== null && rank >= lastAckRank) return;
   if (document.hidden) return;
-
   try {
-    const sub = await navigator.serviceWorker.ready.then((r) => r.pushManager.getSubscription());
-    if (!sub) return;
-    await fetch("/api/push", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "ack", endpoint: sub.endpoint, rank }),
-    });
-    lastAckRank = rank;
+    await postAck(rank);
+    renderAckBar();
   } catch (_) {}
+}
+
+// 상단에 확인 버튼을 띄운다 (관심단계 이상일 때만)
+function renderAckBar() {
+  let bar = document.getElementById("ackBar");
+  const need = curRank != null && curRank <= RANK.low;
+
+  if (!need) {
+    if (bar) bar.remove();
+    return;
+  }
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "ackBar";
+    bar.className = "ack-bar";
+    const host = document.querySelector(".app-bar");
+    if (!host) return;
+    host.appendChild(bar);
+  }
+
+  const done = lastAckRank !== null && curRank >= lastAckRank;
+  bar.innerHTML = done
+    ? '<span class="ab-txt ab-done">확인 완료 — 단계가 오르면 다시 알립니다</span>'
+    : '<span class="ab-txt">반복 알림이 진행 중입니다</span><button type="button" class="ab-btn" id="ackBtn">확인</button>';
+
+  const btn = document.getElementById("ackBtn");
+  if (btn) {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = "처리 중…";
+      try {
+        await postAck(curRank);
+        renderAckBar();
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = "다시 시도";
+        note("확인 실패: " + String(e && e.message ? e.message : e));
+      }
+    };
+  }
 }
