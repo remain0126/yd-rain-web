@@ -524,3 +524,16 @@ details[open] .chev { transform: rotate(180deg); }
   cursor: pointer;
 }
 .wp-close:active { transform: scale(0.98); }
+
+/* 결측이 섞인 누적값 — 값은 살리되 불완전함을 표시한다 */
+.mk-part {
+  font-style: normal;
+  font-size: 0.9em;
+  color: var(--high);
+  font-weight: 700;
+}
+.mk-star {
+  font-style: normal;
+  color: var(--high);
+  margin-left: 1px;
+}

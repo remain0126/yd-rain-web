@@ -1,6 +1,6 @@
 // service worker: 앱 셸(정적 파일)만 캐시. 강우 데이터(/api/rainfall)는
 // 항상 네트워크에서 최신으로 받아온다 (재난 대응 특성상 실시간이 중요).
-const CACHE = "yd-rain-v17";
+const CACHE = "yd-rain-v19";
 const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -70,7 +70,7 @@ self.addEventListener("push", (e) => {
       ? [700, 150, 700, 150, 700, 150, 700, 150, 700, 150, 700, 150, 700]
       : [500, 200, 500, 200, 500, 200, 500],
     actions: d.key ? [{ action: "ack", title: "확인" }] : [],
-    data: { url: d.url || "/", key: d.key || null, group },
+    data: { url: d.url || "/", key: d.key || null, rank: d.rank, group },
   };
 
   e.waitUntil(
@@ -93,14 +93,19 @@ self.addEventListener("notificationclick", (e) => {
   const target = data.url || "/";
 
   // 확인 버튼: 서버에 알려 반복을 멈추게 하고, 앱은 열지 않는다
-  if (e.action === "ack" && data.key) {
+  if (e.action === "ack") {
     e.waitUntil(
       self.registration.pushManager.getSubscription().then((sub) => {
         if (!sub) return;
         return fetch("/api/push", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "ack", endpoint: sub.endpoint, key: data.key }),
+          body: JSON.stringify({
+            action: "ack",
+            endpoint: sub.endpoint,
+            key: data.key,
+            rank: data.rank,
+          }),
         }).catch(() => {});
       })
     );

@@ -167,8 +167,8 @@ function renderCenters(rows) {
           ${warnChips()}
           <div class="cc-metrics">
             <div class="cc-metric"><span class="k">1시간</span><span class="v">${fmtMm(m1)}</span></div>
-            <div class="cc-metric"><span class="k">3시간</span><span class="v">${incomplete3 ? "0mm" : fmtMm(m3)}</span></div>
-            <div class="cc-metric"><span class="k">12시간</span><span class="v">${incomplete12 ? "0mm" : fmtMm(m12)}</span></div>
+            <div class="cc-metric"><span class="k">3시간${incomplete3 ? " <i class='mk-part'>일부결측</i>" : ""}</span><span class="v">${fmtMm(m3)}${incomplete3 ? "<i class='mk-star'>*</i>" : ""}</span></div>
+            <div class="cc-metric"><span class="k">12시간${incomplete12 ? " <i class='mk-part'>일부결측</i>" : ""}</span><span class="v">${fmtMm(m12)}${incomplete12 ? "<i class='mk-star'>*</i>" : ""}</span></div>
           </div>
           ${townsLine}
           ${actionsLine}
