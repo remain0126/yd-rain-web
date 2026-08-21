@@ -1,6 +1,6 @@
 // service worker: 앱 셸(정적 파일)만 캐시. 강우 데이터(/api/rainfall)는
 // 항상 네트워크에서 최신으로 받아온다 (재난 대응 특성상 실시간이 중요).
-const CACHE = "yd-rain-v19";
+const CACHE = "yd-rain-v20";
 const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -92,10 +92,12 @@ self.addEventListener("notificationclick", (e) => {
   const data = e.notification.data || {};
   const target = data.url || "/";
 
-  // 확인 버튼: 서버에 알려 반복을 멈추게 하고, 앱은 열지 않는다
-  if (e.action === "ack") {
-    e.waitUntil(
-      self.registration.pushManager.getSubscription().then((sub) => {
+  // 확인 처리. 버튼을 누르든 본문을 누르든 "봤다"로 간주한다.
+  // 버튼만 인정하면 알림을 확인하고도 계속 울리는 일이 생긴다.
+  const sendAck = () =>
+    self.registration.pushManager
+      .getSubscription()
+      .then((sub) => {
         if (!sub) return;
         return fetch("/api/push", {
           method: "POST",
@@ -106,21 +108,28 @@ self.addEventListener("notificationclick", (e) => {
             key: data.key,
             rank: data.rank,
           }),
-        }).catch(() => {});
+        });
       })
-    );
+      .catch(() => {});
+
+  // 확인 버튼: 앱은 열지 않는다
+  if (e.action === "ack") {
+    e.waitUntil(sendAck());
     return;
   }
 
+  // 본문을 누른 경우: 확인 처리하고 앱도 연다
   e.waitUntil(
-    clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
-      for (const c of list) {
-        if ("focus" in c) {
-          if ("navigate" in c) c.navigate(target);
-          return c.focus();
+    sendAck().then(() =>
+      clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+        for (const c of list) {
+          if ("focus" in c) {
+            if ("navigate" in c) c.navigate(target);
+            return c.focus();
+          }
         }
-      }
-      return clients.openWindow(target);
-    })
+        return clients.openWindow(target);
+      })
+    )
   );
 });

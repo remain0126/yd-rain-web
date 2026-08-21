@@ -371,7 +371,10 @@ function paint(data, opts) {
       return Math.min(acc, r);
     }, 4);
     const kmaRank = KMA_WARN && KMA_WARN.ok && KMA_WARN.level_key ? RANK[KMA_WARN.level_key] : 4;
-    checkAlarm(Math.min(worstRank, kmaRank == null ? 4 : kmaRank));
+    const overall = Math.min(worstRank, kmaRank == null ? 4 : kmaRank);
+    checkAlarm(overall);
+    // 화면을 보고 있으면 확인한 것으로 처리해 반복 알림을 멈춘다
+    if (typeof ackCurrent === "function") ackCurrent(overall);
   } catch (_) {}
   renderRanking(rows);
   renderDetail(rows, columns);
@@ -804,3 +807,28 @@ document.addEventListener("keydown", (e) => {
     openWarnPopup(chip.getAttribute("data-warn"));
   }
 });
+
+// ---------- 앱을 열면 자동 확인 ----------
+//
+// 화면을 보고 있다는 건 상황을 인지했다는 뜻이므로 반복 알림을 멈춘다.
+// 알림 버튼을 정확히 누르지 못하는 경우에도 확실히 멈추게 하기 위한 장치다.
+// 단계가 더 나빠지면 서버가 확인을 무효로 하고 다시 알린다.
+
+let lastAckRank = null;
+
+async function ackCurrent(rank) {
+  if (rank == null || rank > RANK.low) return; // 관심단계 미만이면 알릴 것이 없다
+  if (lastAckRank !== null && rank >= lastAckRank) return; // 같은 수준은 다시 보내지 않는다
+  if (document.hidden) return;
+
+  try {
+    const sub = await navigator.serviceWorker.ready.then((r) => r.pushManager.getSubscription());
+    if (!sub) return;
+    await fetch("/api/push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "ack", endpoint: sub.endpoint, rank }),
+    });
+    lastAckRank = rank;
+  } catch (_) {}
+}
