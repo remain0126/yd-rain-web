@@ -1,6 +1,6 @@
 // service worker: 앱 셸(정적 파일)만 캐시. 강우 데이터(/api/rainfall)는
 // 항상 네트워크에서 최신으로 받아온다 (재난 대응 특성상 실시간이 중요).
-const CACHE = "yd-rain-v15";
+const CACHE = "yd-rain-v17";
 const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -52,21 +52,38 @@ self.addEventListener("push", (e) => {
   }
 
   const title = d.title || "영덕군 강우상황";
+  // 같은 tag를 재사용하면 안드로이드가 "기존 알림 수정"으로 처리해 두 번째부터
+  // 소리·진동이 나지 않는다. 그래서 매번 다른 tag로 새 알림을 띄우고,
+  // 같은 묶음(group)의 이전 알림은 아래에서 직접 닫아 화면에 하나만 남긴다.
+  const group = d.group || "yd-rain";
   const options = {
     body: d.body || "",
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",
-    // 같은 tag면 이전 알림을 덮어쓴다(알림이 쌓이지 않게)
-    tag: d.tag || "yd-rain",
+    tag: d.tag || group + "-" + Date.now(),
     renotify: true,
     requireInteraction: !!d.sticky,
-    vibrate: d.sticky ? [200, 100, 200, 100, 200] : [200, 100, 200],
-    // "확인"을 누르면 그 사람에게는 이 상황에 대한 반복 알림이 멈춘다
+    // 진동 세기는 웹에서 정할 수 없고 길이·횟수만 지정할 수 있다.
+    // 체감을 최대로 하기 위해 긴 진동을 여러 번 반복한다.
+    //   경보급 이상: 약 6.5초 · 그 외: 약 3.5초
+    vibrate: d.sticky
+      ? [700, 150, 700, 150, 700, 150, 700, 150, 700, 150, 700, 150, 700]
+      : [500, 200, 500, 200, 500, 200, 500],
     actions: d.key ? [{ action: "ack", title: "확인" }] : [],
-    data: { url: d.url || "/", key: d.key || null },
+    data: { url: d.url || "/", key: d.key || null, group },
   };
 
-  e.waitUntil(self.registration.showNotification(title, options));
+  e.waitUntil(
+    self.registration
+      .getNotifications()
+      .then((list) => {
+        for (const n of list) {
+          if (n.data && n.data.group === group) n.close();
+        }
+      })
+      .catch(() => {})
+      .then(() => self.registration.showNotification(title, options))
+  );
 });
 
 // 알림을 누르면 앱을 열거나, 이미 열려 있으면 그 창으로 이동한다.

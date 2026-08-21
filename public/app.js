@@ -90,17 +90,14 @@ function warnChips() {
       const tail = until ? ` <small>${fmtHm(until)} 해제예정</small>` : "";
       // 중대경보는 특보 체계의 최상위 단계다(2026.6 신설 폭염중대경보 등).
       // 일반 경보와 같은 색이면 구분이 안 되므로 배경을 채워 무게를 준다.
+      const attr = `data-warn="${label}" role="button" tabindex="0"`;
       if (/중대경보$/.test(label)) {
-        return `<span class="cc-alert cc-alert-major" style="background:${color};border-color:${color};">${label}${tail}</span>`;
+        return `<span class="cc-alert cc-alert-major" ${attr} style="background:${color};border-color:${color};">${label}${tail}</span>`;
       }
-      return `<span class="cc-alert" style="background:${color}1f;color:${color};border-color:${color}55;">${label}${tail}</span>`;
+      return `<span class="cc-alert" ${attr} style="background:${color}1f;color:${color};border-color:${color}55;">${label}${tail}</span>`;
     })
     .join("");
-  // 특보현황은 "발효시각 이후의 상태"를 담고 있어 발표시각보다 앞서 있을 수 있다.
-  // 어느 시점 기준인지 사람이 판단할 수 있도록 시각을 드러낸다.
-  const ef = fmtTmKma(w.tm_ef);
-  const timeNote = ef ? `<span class="cc-alerts-t">${ef} 발효 기준</span>` : "";
-  return `<div class="cc-alerts"><span class="cc-alerts-k">기상특보</span>${chips}${timeNote}</div>`;
+  return `<div class="cc-alerts"><span class="cc-alerts-k">기상특보</span>${chips}</div>`;
 }
 
 // 강풍특보로 승격된 경우에 쓰는 조치사항.
@@ -539,7 +536,10 @@ function banner(html, btnLabel, onClick) {
   }
 }
 function hideBanner() {
-  if (pushBanner) pushBanner.hidden = true;
+  if (!pushBanner) return;
+  pushBanner.hidden = true;
+  pushBannerText.innerHTML = "";
+  pushBannerBtn.hidden = true;
 }
 function note(html) {
   if (!pushNote) return;
@@ -730,3 +730,77 @@ function checkAlarm(worstRank) {
 }
 
 initPush();
+
+// ---------- 특보 상세 팝업 ----------
+//
+// 칩이 좁아 시각을 다 담을 수 없으므로, 누르면 발표·발효 시각을 팝업으로 보여준다.
+// 발효 중인 특보만 화면에 남으므로 해제시각은 표시하지 않는다.
+
+function fmtKmaTm(v) {
+  const s = String(v || "");
+  if (s.length < 12) return "—";
+  return `${Number(s.slice(4, 6))}월 ${Number(s.slice(6, 8))}일 ${s.slice(8, 10)}:${s.slice(10, 12)}`;
+}
+
+function closeWarnPopup() {
+  const el = document.getElementById("warnPopup");
+  if (el) el.remove();
+}
+
+function openWarnPopup(label) {
+  closeWarnPopup();
+
+  const w = KMA_WARN || {};
+  const t = (w.times && w.times[label]) || {};
+  const isAlert = /경보$/.test(label);
+  const color = isAlert ? "#FF0033" : "#FFE600";
+
+  const rows = [
+    ["발표", fmtKmaTm(t.tm_fc)],
+    ["발효", fmtKmaTm(t.tm_ef)],
+  ]
+    .map(
+      ([k, v]) =>
+        `<div class="wp-row"><span class="wp-k">${k}</span><span class="wp-v">${v}</span></div>`
+    )
+    .join("");
+
+  const missing = !t.tm_fc && !t.tm_ef;
+
+  const el = document.createElement("div");
+  el.id = "warnPopup";
+  el.className = "wp-back";
+  el.innerHTML = `
+    <div class="wp-box" role="dialog" aria-label="${label} 상세">
+      <div class="wp-title" style="color:${color};">${label}</div>
+      <div class="wp-body">${rows}</div>
+      ${missing ? '<div class="wp-note">기상청에서 시각을 받아오지 못했습니다.</div>' : ""}
+      <button type="button" class="wp-close">닫기</button>
+    </div>`;
+
+  el.addEventListener("click", (e) => {
+    if (e.target === el || e.target.classList.contains("wp-close")) closeWarnPopup();
+  });
+  document.addEventListener("keydown", function esc(ev) {
+    if (ev.key === "Escape") {
+      closeWarnPopup();
+      document.removeEventListener("keydown", esc);
+    }
+  });
+
+  document.body.appendChild(el);
+}
+
+// 칩은 매번 새로 그려지므로 상위 요소에서 한 번만 받는다
+document.addEventListener("click", (e) => {
+  const chip = e.target.closest && e.target.closest(".cc-alert[data-warn]");
+  if (chip) openWarnPopup(chip.getAttribute("data-warn"));
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const chip = e.target.closest && e.target.closest(".cc-alert[data-warn]");
+  if (chip) {
+    e.preventDefault();
+    openWarnPopup(chip.getAttribute("data-warn"));
+  }
+});
