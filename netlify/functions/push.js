@@ -74,7 +74,8 @@ exports.handler = async function (event) {
         {
           title: "영덕군 강우상황 · 알림 시험",
           body: "알림이 정상적으로 도착했습니다.",
-          tag: "yd-rain-test",
+          tag: `yd-rain-test-${Date.now()}`,
+          group: "yd-rain-test",
           url: "/",
         },
         event

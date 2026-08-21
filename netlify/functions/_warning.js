@@ -7,6 +7,7 @@
 // 극한호우·재난성호우·관심단계는 이 파일이 관여하지 않는다(기존 _tiers.js 자체 계산 유지).
 
 const API_URL = "http://apis.data.go.kr/1360000/WthrWrnInfoService/getPwnStatus";
+const MSG_URL = "http://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg";
 const PAGE_URL = "https://www.weather.go.kr/weather/special/special_day_05.jsp";
 
 // 특보 발표관서: 143 = 대구지방기상청(경북 관할). 실제 응답은 전국 현황이 함께 온다.
@@ -223,6 +224,94 @@ async function fromPage(timeoutMs) {
   return { source: "page", text, tm_ef: null, tm_fc: null };
 }
 
+// ---------- 특보별 발표·발효 시각 ----------
+//
+// 현황 API(getPwnStatus)의 tmEf는 문서 전체에 하나뿐이라 특보별 시각으로 쓸 수 없다.
+// 통보문 API(getWthrWrnMsg)는 발표 건마다 대상 지역(t2)과 발효시각(t3/t5)을 담고 있으므로,
+// 영덕이 포함된 가장 최근 발표 건을 찾으면 그 특보의 정확한 시각을 얻을 수 있다.
+
+function yyyymmdd(d) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}`;
+}
+
+// "(1) 폭염주의보 발표 : 경상북도(영덕, 포항)" 형태를 번호별로 쪼갠다
+function splitNumbered(text) {
+  const out = [];
+  const re = /\((\d+)\)\s*/g;
+  const src = String(text || "");
+  let m, last = null;
+  while ((m = re.exec(src))) {
+    if (last) out.push({ no: last.no, body: src.slice(last.end, m.index).trim() });
+    last = { no: m[1], end: re.lastIndex };
+  }
+  if (last) out.push({ no: last.no, body: src.slice(last.end).trim() });
+  if (!out.length && src.trim()) out.push({ no: "1", body: src.trim() });
+  return out;
+}
+
+/**
+ * 최근 통보문을 훑어 영덕에 걸린 특보별 발표·발효 시각을 뽑는다.
+ * @returns {Promise<Object>} { "폭염주의보": { tm_fc, tm_ef }, ... }
+ */
+async function fetchWarningTimes(timeoutMs) {
+  const key = process.env.KMA_API_KEY;
+  if (!key) throw new Error("KMA_API_KEY 미설정");
+
+  const now = new Date();
+  const from = new Date(now.getTime() - 8 * 24 * 3600 * 1000);
+  const url =
+    `${MSG_URL}?serviceKey=${encodeURIComponent(key)}` +
+    `&pageNo=1&numOfRows=100&dataType=JSON&stnId=${STN_ID}` +
+    `&fromTmFc=${yyyymmdd(from)}&toTmFc=${yyyymmdd(now)}`;
+
+  const res = await fetchWithTimeout(url, timeoutMs);
+  if (!res.ok) throw new Error("통보문 응답 " + res.status);
+
+  const json = await res.json();
+  if (json?.response?.header?.resultCode !== "00") throw new Error("통보문 오류");
+
+  let items = json?.response?.body?.items?.item || [];
+  if (!Array.isArray(items)) items = [items];
+
+  // 최신 발표부터 살펴 특보별로 처음 만난 것(=가장 최근)을 채택한다
+  items.sort((a, b) => Number(b.tmSeq || 0) - Number(a.tmSeq || 0));
+
+  const times = {};
+  for (const it of items) {
+    const areas = splitNumbered(it.t2);
+    const efs = splitNumbered(it.t3);
+
+    for (let i = 0; i < areas.length; i++) {
+      const body = areas[i].body;
+      // "폭염주의보 발표 : 경상북도(...)" → 특보명과 발표/해제 구분
+      const head = body.match(/^([가-힣·]+(?:주의보|경보))\s*(발표|해제|대치|변경)?\s*[:：]\s*(.+)$/);
+      if (!head) continue;
+
+      const kind = head[1];
+      const act = head[2] || "발표";
+      const region = head[3];
+
+      if (act === "해제") continue; // 해제 건은 발효시각이 아니다
+      if (times[kind]) continue; // 이미 더 최근 것을 잡았다
+      if (!areaIsUnder(region, PROVINCE, AREA)) continue;
+
+      // 같은 번호의 t3에서 발효시각을 찾고, 없으면 t5로 대체
+      let tmEf = it.t5 || null;
+      const efBody = (efs[i] && efs[i].body) || "";
+      const m = efBody.match(/(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*(\d{1,2})시\s*(\d{1,2})분/);
+      if (m) {
+        const p = (n) => String(n).padStart(2, "0");
+        tmEf = `${m[1]}${p(m[2])}${p(m[3])}${p(m[4])}${p(m[5])}`;
+      }
+
+      times[kind] = { tm_fc: it.tmFc || null, tm_ef: tmEf };
+    }
+  }
+
+  return times;
+}
+
 // ---------- 조기 해제 방지 ----------
 //
 // 특보현황 문서는 "발효시각(tmEf) 이후의 상태"를 담는다.
@@ -338,6 +427,7 @@ async function getWarning(force = false, timeoutMs, event = "auto") {
       all: [],
       doc: [],
       held: [],
+      times: {},
       errors,
     };
     return failed; // 실패는 캐시하지 않는다
@@ -354,6 +444,16 @@ async function getWarning(force = false, timeoutMs, event = "auto") {
     held = merged.held;
   } catch (_) {}
 
+  // 특보별 발표·발효 시각 (통보문 API). 실패해도 본 판정에는 영향이 없다.
+  let times = {};
+  if (hits.length) {
+    try {
+      times = await fetchWarningTimes(timeoutMs);
+    } catch (e) {
+      errors.push("시각조회: " + String(e && e.message));
+    }
+  }
+
   const best = pickHeavyRain(hits);
 
   const value = {
@@ -368,6 +468,7 @@ async function getWarning(force = false, timeoutMs, event = "auto") {
     all: hits, // 영덕에 걸린 전체 특보 (폭염·강풍 등 포함)
     doc: docHits, // 기상청 문서에 그대로 적힌 목록
     held, // 해제 예정이지만 발효시각까지 유지 중인 특보
+    times, // 특보별 발표·발효 시각 { "폭염주의보": { tm_fc, tm_ef } }
     errors,
   };
 
