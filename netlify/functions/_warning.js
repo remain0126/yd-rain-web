@@ -259,10 +259,10 @@ async function fetchWarningTimes(timeoutMs) {
   if (!key) throw new Error("KMA_API_KEY 미설정");
 
   const now = new Date();
-  const from = new Date(now.getTime() - 8 * 24 * 3600 * 1000);
+  const from = new Date(now.getTime() - 6 * 24 * 3600 * 1000);
   const url =
     `${MSG_URL}?serviceKey=${encodeURIComponent(key)}` +
-    `&pageNo=1&numOfRows=100&dataType=JSON&stnId=${STN_ID}` +
+    `&pageNo=1&numOfRows=60&dataType=JSON&stnId=${STN_ID}` +
     `&fromTmFc=${yyyymmdd(from)}&toTmFc=${yyyymmdd(now)}`;
 
   const res = await fetchWithTimeout(url, timeoutMs);
@@ -350,7 +350,7 @@ function kstToEpoch(s) {
  * 직전 상태와 비교해 조기 해제를 막는다.
  * @returns {{ all: string[], held: Array<{label:string, until:string}> }}
  */
-async function holdReleases(docList, tmEf, event) {
+async function holdReleases(docList, tmEf, event, timeoutMs) {
   const store = blobStore(event);
   const now = Date.now();
   const efAt = kstToEpoch(tmEf);
@@ -364,6 +364,7 @@ async function holdReleases(docList, tmEf, event) {
 
   const prevDoc = Array.isArray(prev && prev.doc) ? prev.doc : [];
   const prevHeld = Array.isArray(prev && prev.held) ? prev.held : [];
+  const prevTimes = (prev && prev.times) || {};
 
   // 1) 아직 유효한 보류분만 남긴다 (문서에 다시 나타났으면 보류 해제)
   const held = prevHeld.filter(
@@ -379,15 +380,40 @@ async function holdReleases(docList, tmEf, event) {
     }
   }
 
+  const all = docList.slice();
+  for (const h of held) if (!all.includes(h.label)) all.push(h.label);
+
+  // 특보별 발표·발효 시각은 저장해 두고 재사용한다.
+  // 통보문 응답이 매우 커서 화면 요청 경로(짧은 제한시간)에서는 조회하지 않고,
+  // 1분 감시(넉넉한 제한시간)에서만 새로 받아 채운다.
+  const times = {};
+  for (const label of all) if (prevTimes[label]) times[label] = prevTimes[label];
+
+  const missing = all.filter((label) => !times[label]);
+  const mayFetch = !timeoutMs || timeoutMs >= 4500;
+  let timesError = null;
+
+  if (missing.length && mayFetch) {
+    try {
+      const fetched = await fetchWarningTimes(timeoutMs);
+      for (const label of all) if (fetched[label]) times[label] = fetched[label];
+    } catch (e) {
+      timesError = String(e && e.message ? e.message : e);
+    }
+  }
+
   if (store) {
     try {
-      await store.setJSON(STATE_KEY, { doc: docList, held, saved_at: new Date().toISOString() });
+      await store.setJSON(STATE_KEY, {
+        doc: docList,
+        held,
+        times,
+        saved_at: new Date().toISOString(),
+      });
     } catch (_) {}
   }
 
-  const all = docList.slice();
-  for (const h of held) if (!all.includes(h.label)) all.push(h.label);
-  return { all, held };
+  return { all, held, times, timesError };
 }
 
 // ---------- 공개 함수 ----------
@@ -438,21 +464,14 @@ async function getWarning(force = false, timeoutMs, event = "auto") {
   // 발효시각 전에 사라진 특보는 붙잡아 둔다 (조기 해제 방지)
   let hits = docHits;
   let held = [];
+  let times = {};
   try {
-    const merged = await holdReleases(docHits, raw.tm_ef, event);
+    const merged = await holdReleases(docHits, raw.tm_ef, event, timeoutMs);
     hits = merged.all;
     held = merged.held;
+    times = merged.times || {};
+    if (merged.timesError) errors.push("시각조회: " + merged.timesError);
   } catch (_) {}
-
-  // 특보별 발표·발효 시각 (통보문 API). 실패해도 본 판정에는 영향이 없다.
-  let times = {};
-  if (hits.length) {
-    try {
-      times = await fetchWarningTimes(timeoutMs);
-    } catch (e) {
-      errors.push("시각조회: " + String(e && e.message));
-    }
-  }
 
   const best = pickHeavyRain(hits);
 

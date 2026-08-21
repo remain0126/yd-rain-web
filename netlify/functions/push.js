@@ -57,10 +57,13 @@ exports.handler = async function (event) {
       const list = await readSubs(event);
       const s = list.find((x) => x.endpoint === body.endpoint);
       if (!s) return reply(404, { ok: false, error: "등록되지 않은 구독" });
-      s.ack = s.ack || {};
-      s.ack[body.key || "unknown"] = new Date().toISOString();
+      // 확인은 단계(rank) 기준으로 기억한다. 숫자가 작을수록 심각하다.
+      // 이후 같은 수준이거나 덜 심각하면 알리지 않고, 더 나빠지면 다시 알린다.
+      const rank = Number.isFinite(Number(body.rank)) ? Number(body.rank) : 3;
+      s.ackRank = rank;
+      s.ackAt = new Date().toISOString();
       await writeSubs(list, event);
-      return reply(200, { ok: true, acked: body.key });
+      return reply(200, { ok: true, acked: true, ackRank: rank });
     }
 
     if (body.action === "test") {

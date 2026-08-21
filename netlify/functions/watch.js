@@ -134,6 +134,7 @@ function buildPayload(now, prev, seq) {
     sticky: now.rank <= RANK.critical,
     key: now.key,
     level: now.level,
+    rank: now.rank,
   };
 }
 
@@ -149,10 +150,15 @@ async function dispatch(now, prev, event) {
   const targets = [];
 
   for (const s of subs) {
-    const ack = (s.ack && s.ack[now.key]) || null;
-    if (ack) continue; // 이미 확인함
+    // 확인은 "이 심각도까지는 봤다"로 기억한다.
+    // 특보 목록이 바뀌어도 무효가 되지 않고, 단계가 더 나빠질 때만 다시 울린다.
+    if (s.ackRank != null && now.rank >= s.ackRank) continue;
 
-    const rec = (s.sent && s.sent[now.key]) || { count: 0, at: 0 };
+    const prevRec = s.sent && typeof s.sent === "object" && s.sent.count != null ? s.sent : null;
+    // 단계가 나빠졌으면 몰아치기를 처음부터 다시 시작한다
+    const worse = !prevRec || prevRec.rank == null || now.rank < prevRec.rank;
+    const rec = worse ? { count: 0, at: 0, rank: now.rank } : prevRec;
+
     const gap = rec.count < BURST_COUNT ? BURST_MS : SLOW_MS;
     // 첫 발송은 즉시, 이후에는 간격이 지나야 발송
     if (rec.count > 0 && t - rec.at < gap - 5000) continue;
@@ -184,8 +190,10 @@ async function dispatch(now, prev, event) {
   for (const s of fresh) {
     const hit = targets.find((x) => x.sub.endpoint === s.endpoint);
     if (!hit) continue;
-    s.sent = { [now.key]: { count: (hit.rec.count || 0) + 1, at: t } };
-    if (s.ack) s.ack = Object.fromEntries(Object.entries(s.ack).filter(([k]) => k === now.key));
+    s.sent = { count: (hit.rec.count || 0) + 1, at: t, rank: now.rank };
+    // 여기까지 왔다는 건 확인 상태가 아니거나 상황이 더 나빠졌다는 뜻이므로 확인을 푼다
+    delete s.ackRank;
+    delete s.ack;
   }
   await writeSubs(fresh, event);
 
@@ -292,7 +300,8 @@ async function dispatchClear(prev, event) {
   const fresh = await readSubs(event);
   for (const s of fresh) {
     s.sent = {};
-    s.ack = {};
+    delete s.ackRank;
+    delete s.ack;
   }
   await writeSubs(fresh, event);
   return res;
