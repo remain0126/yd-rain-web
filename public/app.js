@@ -374,7 +374,6 @@ function paint(data, opts) {
     const overall = Math.min(worstRank, kmaRank == null ? 4 : kmaRank);
     checkAlarm(overall);
     curRank = overall;
-    if (typeof renderAckBar === "function") renderAckBar();
     if (typeof ackCurrent === "function") ackCurrent(overall);
   } catch (_) {}
   renderRanking(rows);
@@ -573,12 +572,17 @@ async function subscribeSilently() {
 
   const reg = await navigator.serviceWorker.ready;
   let sub = await reg.pushManager.getSubscription();
+  const already = !!sub;
   if (!sub) {
     sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(info.public_key),
     });
   }
+
+  // 이미 등록된 구독이면 서버에 다시 보내지 않는다.
+  // 불필요한 갱신을 줄이고, 확인 상태가 초기화될 여지를 없앤다.
+  if (already) return sub;
 
   const res = await fetch("/api/push", {
     method: "POST",
@@ -811,8 +815,8 @@ document.addEventListener("keydown", (e) => {
 
 // ---------- 확인 처리 ----------
 //
-// 알림 버튼에만 의존하면 서비스워커 상태나 알림 종류에 따라 실패한다.
-// 그래서 앱 안에 확인 버튼을 두고, 화면을 열어두면 자동으로도 확인 처리한다.
+// 앱을 열면(또는 화면을 보고 있으면) 자동으로 확인 처리한다.
+// 화면에는 아무것도 표시하지 않는다.
 
 let lastAckRank = null;
 let curRank = null;
@@ -841,46 +845,9 @@ async function ackCurrent(rank) {
   if (document.hidden) return;
   try {
     await postAck(rank);
-    renderAckBar();
-  } catch (_) {}
-}
-
-// 상단에 확인 버튼을 띄운다 (관심단계 이상일 때만)
-function renderAckBar() {
-  let bar = document.getElementById("ackBar");
-  const need = curRank != null && curRank <= RANK.low;
-
-  if (!need) {
-    if (bar) bar.remove();
-    return;
-  }
-  if (!bar) {
-    bar = document.createElement("div");
-    bar.id = "ackBar";
-    bar.className = "ack-bar";
-    const host = document.querySelector(".app-bar");
-    if (!host) return;
-    host.appendChild(bar);
-  }
-
-  const done = lastAckRank !== null && curRank >= lastAckRank;
-  bar.innerHTML = done
-    ? '<span class="ab-txt ab-done">확인 완료 — 단계가 오르면 다시 알립니다</span>'
-    : '<span class="ab-txt">반복 알림이 진행 중입니다</span><button type="button" class="ab-btn" id="ackBtn">확인</button>';
-
-  const btn = document.getElementById("ackBtn");
-  if (btn) {
-    btn.onclick = async () => {
-      btn.disabled = true;
-      btn.textContent = "처리 중…";
-      try {
-        await postAck(curRank);
-        renderAckBar();
-      } catch (e) {
-        btn.disabled = false;
-        btn.textContent = "다시 시도";
-        note("확인 실패: " + String(e && e.message ? e.message : e));
-      }
-    };
+  } catch (_) {
+    // 실패해도 화면에는 아무것도 띄우지 않는다.
+    // 다음 갱신(1분 주기)이나 알림의 확인 버튼으로 다시 시도된다.
   }
 }
+

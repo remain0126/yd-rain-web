@@ -537,35 +537,3 @@ details[open] .chev { transform: rotate(180deg); }
   color: var(--high);
   margin-left: 1px;
 }
-
-/* 확인 버튼 줄 — 반복 알림을 앱에서 직접 멈출 수 있게 한다 */
-.ack-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 10px;
-  padding: 9px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--high);
-  background: color-mix(in srgb, var(--high) 12%, transparent);
-}
-.ab-txt {
-  flex: 1;
-  font-size: 0.76rem;
-  font-weight: 700;
-  color: var(--high);
-}
-.ab-txt.ab-done { color: var(--muted); font-weight: 600; }
-.ab-btn {
-  flex-shrink: 0;
-  padding: 7px 16px;
-  border-radius: 8px;
-  border: none;
-  background: var(--high);
-  color: #0a0f16;
-  font-size: 0.78rem;
-  font-weight: 800;
-  cursor: pointer;
-}
-.ab-btn:active { transform: scale(0.96); }
-.ab-btn:disabled { opacity: 0.6; }
