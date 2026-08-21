@@ -373,9 +373,12 @@ exports.handler = async function (event) {
       log.dispatch = { skipped: "평상시" };
     }
 
-    // 알림을 켠 기기 수는 상황과 무관하게 항상 알려준다
+    // 알림을 켠 기기 수와 확인 상태 (점검용)
     try {
-      log.subscribers = (await readSubs(event)).length;
+      const list = await readSubs(event);
+      log.subscribers = list.length;
+      log.acked = list.filter((s) => s.ackRank != null).length;
+      log.ack_ranks = list.map((s) => (s.ackRank == null ? "-" : s.ackRank)).join(",");
     } catch (_) {}
 
     if (store) {
