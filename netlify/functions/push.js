@@ -62,8 +62,15 @@ exports.handler = async function (event) {
       const rank = Number.isFinite(Number(body.rank)) ? Number(body.rank) : 3;
       s.ackRank = rank;
       s.ackAt = new Date().toISOString();
-      await writeSubs(list, event);
-      return reply(200, { ok: true, acked: true, ackRank: rank });
+      s.ackCount = (s.ackCount || 0) + 1;
+      const okWrite = await writeSubs(list, event);
+      return reply(200, {
+        ok: true,
+        acked: true,
+        ackRank: rank,
+        saved: okWrite,
+        ackCount: s.ackCount,
+      });
     }
 
     if (body.action === "test") {

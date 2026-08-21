@@ -122,6 +122,10 @@ function buildPayload(now, prev, seq) {
     lines.push("관내 강우 없음 · 기상특보 " + now.warnings.join(" · "));
   }
 
+  // 반복을 멈추는 방법을 알림에 명시한다.
+  // 알림의 확인 버튼은 기기 상태에 따라 동작하지 않을 수 있으므로 앱을 안내한다.
+  lines.push("반복 중지: 이 알림을 눌러 앱에서 [확인]");
+
   // 몇 번째 알림인지 표시해 남은 반복을 가늠할 수 있게 한다
   const counter = seq && seq <= BURST_COUNT ? ` (${seq}/${BURST_COUNT})` : "";
 
@@ -379,6 +383,10 @@ exports.handler = async function (event) {
       log.subscribers = list.length;
       log.acked = list.filter((s) => s.ackRank != null).length;
       log.ack_ranks = list.map((s) => (s.ackRank == null ? "-" : s.ackRank)).join(",");
+      log.ack_tries = list.reduce((n, s) => n + (s.ackCount || 0), 0);
+      log.sent_state = list
+        .map((s) => (s.sent && s.sent.count != null ? `${s.sent.count}@${s.sent.rank}` : "-"))
+        .join(",");
     } catch (_) {}
 
     if (store) {
