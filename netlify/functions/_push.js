@@ -71,15 +71,17 @@ async function addSub(sub, label, event) {
   const list = await readSubs(event);
   const idx = list.findIndex((s) => s.endpoint === sub.endpoint);
 
+  // 기존 기록을 통째로 이어받는다.
+  // 여기서 항목을 새로 만들면 확인 상태(ackRank)나 발송 횟수가 사라져,
+  // 앱을 다시 열 때마다 반복 알림이 처음부터 되살아난다.
+  const prev = idx >= 0 ? list[idx] : {};
+
   const entry = {
+    ...prev,
     endpoint: sub.endpoint,
     keys: sub.keys,
-    label: label || (idx >= 0 ? list[idx].label : "") || "",
-    // 확인(무음) 상태: { "<상태키>": ISO시각 }
-    ack: idx >= 0 ? list[idx].ack || {} : {},
-    // 마지막 발송 시각: { "<상태키>": ISO시각 }
-    sent: idx >= 0 ? list[idx].sent || {} : {},
-    created_at: idx >= 0 ? list[idx].created_at : new Date().toISOString(),
+    label: label || prev.label || "",
+    created_at: prev.created_at || new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
 
