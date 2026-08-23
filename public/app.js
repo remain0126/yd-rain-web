@@ -496,6 +496,9 @@ document.addEventListener("visibilitychange", () => {
     clearInterval(refreshTimer);
     refreshTimer = null;
   } else if (!refreshTimer) {
+    // 화면으로 돌아온 즉시 확인 처리한다. 자료 갱신을 기다리면
+    // 그 사이 발송이 한 번 더 나갈 수 있다.
+    if (typeof ackCurrent === "function" && curRank != null) ackCurrent(curRank);
     load();
     refreshTimer = setInterval(load, REFRESH_MS);
   }
