@@ -151,7 +151,7 @@ async function dispatch(now, prev, event) {
   if (!subs.length) return { skipped: "구독자 없음" };
 
   const t = Date.now();
-  const targets = [];
+  let targets = [];
 
   for (const s of subs) {
     // 확인은 "이 심각도까지는 봤다"로 기억한다.
@@ -171,6 +171,24 @@ async function dispatch(now, prev, event) {
   }
 
   if (!targets.length) return { skipped: "발송 대상 없음", subs: subs.length };
+
+  // 보내기 직전에 확인 상태를 한 번 더 읽는다.
+  // 판단 시점과 발송 시점 사이(수백 ms~수 초)에 확인을 누른 사람에게
+  // 알림이 한 통 더 가는 것을 막기 위함이다.
+  let justAcked = 0;
+  try {
+    const latest = await readSubs(event);
+    const ackedNow = new Set(
+      latest.filter((s) => s.ackRank != null && now.rank >= s.ackRank).map((s) => s.endpoint)
+    );
+    const before = targets.length;
+    targets = targets.filter((x) => !ackedNow.has(x.sub.endpoint));
+    justAcked = before - targets.length;
+  } catch (_) {}
+
+  if (!targets.length) {
+    return { skipped: "발송 직전 확인됨", just_acked: justAcked, subs: subs.length };
+  }
 
   // 순번(n/15)은 사람마다 다르므로 같은 순번끼리 묶어 보낸다
   const groups = new Map();
@@ -201,7 +219,7 @@ async function dispatch(now, prev, event) {
   }
   await writeSubs(fresh, event);
 
-  return { ...res, targets: targets.length, subs: subs.length };
+  return { ...res, targets: targets.length, just_acked: justAcked, subs: subs.length };
 }
 
 // 특보 이름을 계열과 등급으로 나눈다.
