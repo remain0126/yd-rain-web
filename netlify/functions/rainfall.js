@@ -7,6 +7,7 @@ const REFRESH_AFTER_MS = 5 * 60 * 1000;
 
 // 특보는 강우 스냅샷(5분 주기)보다 자주 바뀔 수 있으므로 응답 시점에 한 번 더 확인한다.
 const { getWarning } = require("./_warning");
+const logbook = require("./_logbook");
 const WARNING_TIMEOUT_MS = 3500;
 
 function safeStore(name, event) {
@@ -81,6 +82,12 @@ exports.handler = async function (event) {
   if (shouldRefresh) {
     dispatch = await requestBackgroundRefresh(event);
   }
+
+  // 접속 기록 (브라우저가 보낸 임의 식별자만 사용, 개인정보 아님)
+  try {
+    const vid = (event.queryStringParameters && event.queryStringParameters.v) || null;
+    if (vid) await logbook.recordVisit(vid, event);
+  } catch (_) {}
 
   // 저장된 자료가 있으면 즉시 반환하고, 새 수집은 뒤에서 진행한다.
   if (snap) {

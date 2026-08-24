@@ -14,6 +14,7 @@
 const { buildData } = require("./_build");
 const { getWarning } = require("./_warning");
 const { readSubs, writeSubs, sendMany, configured } = require("./_push");
+const logbook = require("./_logbook");
 
 const STORE_NAME = "rainfall-history";
 const WATCH_KEY = "watch-state";
@@ -411,6 +412,24 @@ exports.handler = async function (event) {
       try {
         await store.setJSON(WATCH_KEY, { ...now, saved_at: new Date().toISOString() });
       } catch (_) {}
+    }
+
+    // 운영 기록 축적 (실패해도 감시·발송에는 영향 없음)
+    try {
+      await logbook.recordWatch(
+        {
+          snap,
+          warn,
+          level: now.level,
+          dispatch: log.dispatch,
+          subscribers: log.subscribers,
+          acked: log.acked,
+        },
+        event
+      );
+      log.logged = true;
+    } catch (e) {
+      log.log_error = String(e && e.message);
     }
 
     return {
