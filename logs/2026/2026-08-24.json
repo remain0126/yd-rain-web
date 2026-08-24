@@ -2,7 +2,7 @@
  "date": "2026-08-24",
  "rain": {},
  "visits": {
-  "total": 6,
+  "total": 24,
   "byHour": [
    0,
    0,
@@ -20,19 +20,21 @@
    0,
    0,
    0,
-   6,
+   5,
+   8,
    0,
-   0,
-   0,
-   0,
-   0,
-   0,
+   3,
+   1,
+   3,
+   4,
    0
   ],
   "uniq": [
    "lecafqdd",
    "zogdqm9y",
-   "uaur5iq9"
+   "uaur5iq9",
+   "4xtolqmv",
+   "s17ecd38"
   ]
  },
  "push": {
@@ -42,5 +44,5 @@
   "byType": {}
  },
  "events": [],
- "updated_at": "2026-08-24T07:59:58.086Z"
+ "updated_at": "2026-08-24T13:51:10.888Z"
 }
