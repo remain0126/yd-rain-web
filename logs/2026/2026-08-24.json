@@ -1,0 +1,46 @@
+{
+ "date": "2026-08-24",
+ "rain": {},
+ "visits": {
+  "total": 6,
+  "byHour": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   6,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "uniq": [
+   "lecafqdd",
+   "zogdqm9y",
+   "uaur5iq9"
+  ]
+ },
+ "push": {
+  "sent": 0,
+  "acked": 0,
+  "subscribers": 0,
+  "byType": {}
+ },
+ "events": [],
+ "updated_at": "2026-08-24T07:59:58.086Z"
+}
