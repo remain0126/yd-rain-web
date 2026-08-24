@@ -34,6 +34,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/logs"
+  to = "/.netlify/functions/logs"
+  status = 200
+
+[[redirects]]
   from = "/api/push"
   to = "/.netlify/functions/push"
   status = 200
