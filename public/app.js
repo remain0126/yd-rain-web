@@ -150,8 +150,11 @@ function renderCenters(rows) {
   el.innerHTML = cards
     .map(({ c, worst, m1, m3, m12, elevated, incomplete3, incomplete12 }) => {
       const isNormal = worst.key === "normal";
+      // 자체 강우 계산 기준으로 구분한다. 기상청 특보와 혼동되지 않도록
+      // "특보 대상" 대신 관심지역 / 위험지역으로 표기한다.
+      const areaLabel = RANK[worst.key] <= RANK.high ? "위험지역" : "관심지역";
       const townsLine = elevated.length
-        ? `<div class="cc-towns">특보 대상 <b>${elevated.join(" · ")}</b></div>`
+        ? `<div class="cc-towns">${areaLabel} <b>${elevated.join(" · ")}</b></div>`
         : `<div class="cc-towns">관할 ${c.towns.map(dn).join(" · ")}</div>`;
       const actionsLine = isNormal
         ? ""
@@ -202,10 +205,13 @@ function renderRanking(rows) {
       const pct = hasRain && max > 0 ? Math.max(3, (value / max) * 100) : 0;
       const rankColor =
         hasRain && idx === 0 ? "#FFE600" : hasRain && idx === 1 ? "#cbd5e1" : hasRain && idx === 2 ? "#d97706" : "var(--muted)";
-      const badge =
-        it.riskKey !== "normal"
-          ? `<span class="rk-badge" style="background:${it.riskColor}22;color:${it.riskColor};">${it.riskLabel}</span>`
-          : "";
+      // 관심단계는 경계지역, 주의보급 이상은 위험지역으로 구분해 표시한다.
+      // (자체 강우 계산 기준이므로 읍면마다 다르게 나타난다)
+      const rk = RANK[it.riskKey];
+      const zone = rk <= RANK.high ? "위험지역" : rk === RANK.low ? "경계지역" : "";
+      const badge = zone
+        ? `<span class="rk-zone" style="background:${it.riskColor}22;color:${it.riskColor};border-color:${it.riskColor}66;">${zone}</span>`
+        : "";
       const fillColor = it.riskKey !== "normal" ? `background:${it.riskColor};` : "";
       return `
         <div class="rk-row">
@@ -423,12 +429,27 @@ function scheduleRetry(ms = 25000) {
   }, ms);
 }
 
+// 접속 집계용 임의 식별자. 개인을 식별하는 정보가 아니며,
+// 브라우저 저장소에만 남아 있어 지우면 새로 발급된다.
+function visitorId() {
+  try {
+    let v = localStorage.getItem("yd_vid");
+    if (!v) {
+      v = Math.random().toString(36).slice(2, 10);
+      localStorage.setItem("yd_vid", v);
+    }
+    return v;
+  } catch (_) {
+    return "anon";
+  }
+}
+
 async function load(force) {
   const icon = $("refreshIcon");
   icon.classList.add("spin");
   try {
     const sep = force ? "?fresh=1&" : "?";
-    const url = "/api/rainfall" + sep + "_=" + Date.now();
+    const url = "/api/rainfall" + sep + "v=" + visitorId() + "&_=" + Date.now();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     let res;

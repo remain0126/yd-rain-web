@@ -537,3 +537,14 @@ details[open] .chev { transform: rotate(180deg); }
   color: var(--high);
   margin-left: 1px;
 }
+
+/* 읍면별 지역 구분 표시 (경계지역 / 위험지역) */
+.rk-zone {
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
