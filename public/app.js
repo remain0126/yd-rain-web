@@ -768,6 +768,15 @@ initPush();
 // 칩이 좁아 시각을 다 담을 수 없으므로, 누르면 발표·발효 시각을 팝업으로 보여준다.
 // 발효 중인 특보만 화면에 남으므로 해제시각은 표시하지 않는다.
 
+// 칩은 좁으므로 시각만 적고, 날짜와 요일은 칩을 눌러 여는 팝업에서 밝힌다.
+const WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
+
+function fmtReleaseFull(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  return `${d.getMonth() + 1}월 ${d.getDate()}일(${WEEKDAY[d.getDay()]}) ${fmtHm(iso)}`;
+}
+
 function fmtKmaTm(v) {
   const s = String(v || "");
   if (s.length < 12) return "—";
@@ -777,6 +786,14 @@ function fmtKmaTm(v) {
 function closeWarnPopup() {
   const el = document.getElementById("warnPopup");
   if (el) el.remove();
+}
+
+// 화면에 그려둔 해제예정 정보를 마지막 자료에서 찾아 쓴다
+function heldUntil(label) {
+  const w = KMA_WARN || {};
+  if (!Array.isArray(w.held)) return null;
+  const h = w.held.find((x) => x && x.label === label);
+  return h ? h.until : null;
 }
 
 function openWarnPopup(label) {
@@ -790,6 +807,9 @@ function openWarnPopup(label) {
   const rows = [
     ["발표", fmtKmaTm(t.tm_fc)],
     ["발효", fmtKmaTm(t.tm_ef)],
+    // 해제 예정이 잡혀 있으면 함께 보여준다. 위의 발효는 이 특보가 처음
+    // 효력을 얻은 시각이므로, 언제 풀리는지와는 다른 정보다.
+    ...(heldUntil(label) ? [["해제예정", fmtReleaseFull(heldUntil(label))]] : []),
   ]
     .map(
       ([k, v]) =>
