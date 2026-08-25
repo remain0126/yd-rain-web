@@ -52,11 +52,16 @@ function blobStore(event) {
   }
 }
 
+// Netlify Blobs는 기본이 느슨한 읽기다. 저장된 값이 각 지역 캐시에 퍼지는 데
+// 최대 60초가 걸려, 방금 수집한 자료를 읽어도 한 세대 전 값이 나올 수 있다.
+// 강우 자료는 늘 최신이어야 하므로 강한 읽기로 원본을 직접 본다.
+// 읽기가 수십 밀리초 느려지지만, 자료가 1분 묵는 것보다는 낫다.
+// 감시가 묵은 값으로 단계를 매기면 알림도 그만큼 늦는다.
 function rainStore(event) {
   try {
     const blobs = require("@netlify/blobs");
     if (event && typeof blobs.connectLambda === "function") blobs.connectLambda(event);
-    return blobs.getStore("rainfall");
+    return blobs.getStore({ name: "rainfall", consistency: "strong" });
   } catch (_) {
     return null;
   }
