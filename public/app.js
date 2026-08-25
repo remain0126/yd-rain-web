@@ -367,23 +367,29 @@ function loadLocal() {
 // 재난 화면으로서 산만하다.
 let introDone = false;
 
-function playIntro() {
-  if (introDone) return;
+// 그리기 전에 미리 걸어둔다.
+//
+// 카드를 먼저 그린 다음 연출을 붙이면, 완성된 화면이 한 순간 보였다가
+// 처음으로 되감기며 다시 올라온다. 두 번 뜨는 것처럼 보인다.
+// 그래서 상자에 클래스를 먼저 걸어두고, 그 안에 카드를 채워 넣는다.
+function armIntro() {
+  if (introDone) return false;
   introDone = true;
+  const el = $("centerStatus");
+  if (el) el.classList.add("stage-in");
+  return true;
+}
+
+// 카드를 그린 직후에 부른다
+function finishIntro(armed) {
+  if (!armed) return;
 
   const el = $("centerStatus");
-  if (el) {
-    el.classList.remove("stage-in");
-    // 클래스를 다시 붙이기 전에 한 번 재계산시켜야 애니메이션이 다시 걸린다
-    void el.offsetWidth;
-    el.classList.add("stage-in");
-    // 연출이 끝나면 떼어낸다. 남겨두면 갱신 때마다 카드가 다시 들썩인다.
-    setTimeout(() => el.classList.remove("stage-in"), 2000);
-  }
+  // 연출이 끝나면 떼어낸다. 남겨두면 갱신 때마다 카드가 다시 들썩인다.
+  if (el) setTimeout(() => el.classList.remove("stage-in"), 3200);
 
   watchRanking();
 
-  // 단계가 올라간 카드는 자리를 잡은 뒤 테두리가 한 번 번진다
   document.querySelectorAll(".center-card.elevated").forEach((c) => {
     c.classList.add("stage-glow");
   });
@@ -408,7 +414,7 @@ function watchRanking() {
       el.classList.add("reveal-bars");
       // 클래스를 남겨두면 1분마다 새로 그려진 막대까지 다시 자란다.
       // 연출이 끝나면 떼어낸다.
-      setTimeout(() => el.classList.remove("reveal-bars"), 1600);
+      setTimeout(() => el.classList.remove("reveal-bars"), 2200);
     },
     { threshold: 0.25 }
   );
@@ -555,9 +561,12 @@ async function load(force) {
     if (!res.ok) throw new Error("서버 응답 " + res.status);
     if (data.error) throw new Error(data.error);
 
+    firstPaintDone = true;
+    clearTimeout(cachedTimer);
+    const armed = armIntro();
     paint(data, { cachedView: false });
+    finishIntro(armed);
     saveLocal(data);
-    playIntro();
 
     // 수동 새로고침 또는 오래된 자료로 인해 백그라운드 수집을 요청했다면
     // 실제 저장이 끝난 뒤 한 번 더 읽어 화면을 교체한다.
@@ -565,7 +574,11 @@ async function load(force) {
   } catch (e) {
     const local = loadLocal();
     if (local) {
+      firstPaintDone = true;
+      clearTimeout(cachedTimer);
+      const armed = armIntro();
       paint(local, { cachedView: true });
+      finishIntro(armed);
       markCachedView(local);
     } else {
       $("updatedAt").textContent = "자료 수신 대기 중 · 잠시 후 자동 갱신";
@@ -583,13 +596,23 @@ $("refreshBtn").addEventListener("click", () => load(true));
 
 // 재방문이면 저장된 직전 데이터를 먼저 즉시 그려서 체감 속도 향상,
 // 그 뒤 백그라운드로 최신 데이터를 받아 교체
+// 저장해 둔 화면을 곧바로 그리면, 0.5초 뒤 새 자료가 도착해 화면이 두 번
+// 바뀐다. 서버가 대개 그 안에 답하므로 잠깐 기다렸다가, 그래도 안 오면
+// 그때 저장 화면을 띄운다. 통신이 나쁠 때 빈 화면으로 두지 않기 위함이다.
+let firstPaintDone = false;
+let cachedTimer = null;
+
+$("updatedAt").textContent = "자료 확인 중";
+
 const cached = loadLocal();
 if (cached) {
-  paint(cached, { cachedView: true });
-  markCachedView(cached);
-  playIntro();
-} else {
-  $("updatedAt").textContent = "자료 확인 중";
+  cachedTimer = setTimeout(() => {
+    if (firstPaintDone) return;
+    const armed = armIntro();
+    paint(cached, { cachedView: true });
+    finishIntro(armed);
+    markCachedView(cached);
+  }, 700);
 }
 
 load();

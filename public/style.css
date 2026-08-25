@@ -472,23 +472,24 @@ details[open] .chev { transform: rotate(180deg); }
 }
 
 .stage-in > * {
-  animation: riseIn 700ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation: riseIn 1100ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
-.stage-in > *:nth-child(1) { animation-delay: 0ms; }
-.stage-in > *:nth-child(2) { animation-delay: 70ms; }
-.stage-in > *:nth-child(3) { animation-delay: 140ms; }
-.stage-in > *:nth-child(4) { animation-delay: 210ms; }
-.stage-in > *:nth-child(5) { animation-delay: 280ms; }
-.stage-in > *:nth-child(n + 6) { animation-delay: 350ms; }
+/* 화면이 그려지자마자 시작하면 눈에 담기지 않는다. 조금 늦춰 시작한다. */
+.stage-in > *:nth-child(1) { animation-delay: 160ms; }
+.stage-in > *:nth-child(2) { animation-delay: 340ms; }
+.stage-in > *:nth-child(3) { animation-delay: 520ms; }
+.stage-in > *:nth-child(4) { animation-delay: 700ms; }
+.stage-in > *:nth-child(5) { animation-delay: 880ms; }
+.stage-in > *:nth-child(n + 6) { animation-delay: 1000ms; }
 
 @keyframes riseIn {
-  from { opacity: 0; transform: translate3d(0, 13px, -30px) rotateX(4deg); }
+  from { opacity: 0; transform: translate3d(0, 18px, -46px) rotateX(6deg); }
   to { opacity: 1; transform: none; }
 }
 
 .head-in {
-  animation: fadeUp 700ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation: fadeUp 900ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
 @keyframes fadeUp {
@@ -502,19 +503,23 @@ details[open] .chev { transform: rotate(180deg); }
   inset: 0;
   pointer-events: none;
   transform: translateX(-120%);
+  /* 어두운 바탕에서는 흰빛이 잘 묻힌다. 심을 밝게 주고 띠를 넓혀
+     지나가는 것이 눈에 잡히도록 한다. */
   background: linear-gradient(
     105deg,
-    transparent 38%,
-    rgba(255, 255, 255, 0.09) 50%,
-    transparent 62%
+    transparent 28%,
+    rgba(255, 255, 255, 0.04) 40%,
+    rgba(255, 255, 255, 0.22) 50%,
+    rgba(255, 255, 255, 0.04) 60%,
+    transparent 72%
   );
 }
 
 .stage-in .cc-sheen {
-  animation: sweep 1100ms cubic-bezier(0.4, 0, 0.2, 1) 360ms 1 forwards;
+  animation: sweep 1300ms cubic-bezier(0.35, 0, 0.25, 1) 560ms 1 forwards;
 }
-.stage-in > *:nth-child(2) .cc-sheen { animation-delay: 430ms; }
-.stage-in > *:nth-child(3) .cc-sheen { animation-delay: 500ms; }
+.stage-in > *:nth-child(2) .cc-sheen { animation-delay: 700ms; }
+.stage-in > *:nth-child(3) .cc-sheen { animation-delay: 880ms; }
 
 @keyframes sweep {
   from { transform: translateX(-120%); }
@@ -525,12 +530,13 @@ details[open] .chev { transform: rotate(180deg); }
    순위표는 화면을 내려야 보이므로, 눈에 들어온 순간에 한 번만 돈다. */
 .reveal-bars .rk-fill {
   transform-origin: left;
-  animation: growBar 900ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation: growBar 1200ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
-.reveal-bars .rk-row:nth-child(2) .rk-fill { animation-delay: 70ms; }
-.reveal-bars .rk-row:nth-child(3) .rk-fill { animation-delay: 140ms; }
-.reveal-bars .rk-row:nth-child(4) .rk-fill { animation-delay: 210ms; }
-.reveal-bars .rk-row:nth-child(n + 5) .rk-fill { animation-delay: 280ms; }
+.reveal-bars .rk-row:nth-child(2) .rk-fill { animation-delay: 110ms; }
+.reveal-bars .rk-row:nth-child(3) .rk-fill { animation-delay: 220ms; }
+.reveal-bars .rk-row:nth-child(4) .rk-fill { animation-delay: 330ms; }
+.reveal-bars .rk-row:nth-child(5) .rk-fill { animation-delay: 440ms; }
+.reveal-bars .rk-row:nth-child(n + 6) .rk-fill { animation-delay: 550ms; }
 
 @keyframes growBar {
   from { transform: scaleX(0); }
@@ -539,8 +545,8 @@ details[open] .chev { transform: rotate(180deg); }
 
 /* 단계가 올라간 카드는 자리를 잡은 뒤 테두리가 한 번 번진다 */
 .center-card.elevated.stage-glow {
-  animation: riseIn 700ms cubic-bezier(0.16, 1, 0.3, 1) backwards,
-             edgeGlow 1600ms ease-out 820ms 1;
+  animation: riseIn 1100ms cubic-bezier(0.16, 1, 0.3, 1) backwards,
+             edgeGlow 1800ms ease-out 1400ms 1;
 }
 
 @keyframes edgeGlow {
