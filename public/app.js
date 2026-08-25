@@ -386,7 +386,7 @@ function finishIntro(armed) {
 
   const el = $("centerStatus");
   // 연출이 끝나면 떼어낸다. 남겨두면 갱신 때마다 카드가 다시 들썩인다.
-  if (el) setTimeout(() => el.classList.remove("stage-in"), 3200);
+  if (el) setTimeout(() => el.classList.remove("stage-in"), 2600);
 
   watchRanking();
 
