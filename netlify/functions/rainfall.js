@@ -9,6 +9,8 @@ const REFRESH_AFTER_MS = 5 * 60 * 1000;
 const { getWarning } = require("./_warning");
 const logbook = require("./_logbook");
 const WARNING_TIMEOUT_MS = 3500;
+// 저장된 특보가 이보다 새것이면 다시 받지 않고 그대로 쓴다
+const WARNING_REUSE_MS = 60 * 1000;
 
 
 // 저장된 강우 자료를 읽는다.
@@ -97,28 +99,37 @@ exports.handler = async function (event) {
       : Number.POSITIVE_INFINITY;
 
   const shouldRefresh = forceFresh || !snap || ageMs >= REFRESH_AFTER_MS;
-  let dispatch = null;
-  if (shouldRefresh) {
-    dispatch = await requestBackgroundRefresh(event);
-  }
 
-  // 접속 기록 (브라우저가 보낸 임의 식별자만 사용, 개인정보 아님)
-  try {
-    const vid = (event.queryStringParameters && event.queryStringParameters.v) || null;
-    if (vid) await logbook.recordVisit(vid, event);
-  } catch (_) {}
+  // 저장된 특보가 아직 새것이면 다시 받지 않는다.
+  // 특보 조회는 최대 3.5초가 걸려 화면이 뜨는 속도를 좌우한다.
+  const warnAge =
+    snap && snap.kma_warning && snap.kma_warning.checked_at
+      ? Date.now() - new Date(snap.kma_warning.checked_at).getTime()
+      : Number.POSITIVE_INFINITY;
+  const needWarning = forceFresh || warnAge >= WARNING_REUSE_MS;
+
+  // 세 가지 일을 나란히 처리한다. 차례로 기다리면 그만큼 화면이 늦게 뜬다.
+  const [dispatch, warn] = await Promise.all([
+    shouldRefresh ? requestBackgroundRefresh(event) : Promise.resolve(null),
+    needWarning
+      ? getWarning(false, WARNING_TIMEOUT_MS, event).catch(() => null)
+      : Promise.resolve(null),
+    // 접속 기록 (브라우저가 보낸 임의 식별자만 사용, 개인정보 아님)
+    (async () => {
+      try {
+        const vid = (event.queryStringParameters && event.queryStringParameters.v) || null;
+        if (vid) await logbook.recordVisit(vid, event);
+      } catch (_) {}
+    })(),
+  ]);
 
   // 저장된 자료가 있으면 즉시 반환하고, 새 수집은 뒤에서 진행한다.
   if (snap) {
-    // 특보만 응답 시점 기준으로 갱신한다. 실패하면 스냅샷에 저장된 값을 그대로 쓴다.
-    let warn = null;
-    try {
-      warn = await getWarning(false, WARNING_TIMEOUT_MS, event);
-    } catch (_) {}
 
     return {
       statusCode: 200,
-      headers: responseHeaders(forceFresh),
+      // 강우 자료는 매번 새로 받아야 한다. 캐시를 두면 지난 값이 그대로 나온다.
+      headers: responseHeaders(true),
       body: JSON.stringify({
         ...snap,
         kma_warning: warn && warn.ok ? warn : snap.kma_warning || null,
