@@ -143,13 +143,15 @@ function assess(snap, warn) {
     }
   }
 
-  // 기상청 특보가 자체 계산보다 높으면 특보를 따른다
+  // 기상청 특보가 자체 계산보다 높으면 특보를 따른다.
+  // 발표된 즉시 반영한다. 발효를 기다리지 않는다 — 미리 대비하는 편이 낫다.
   let kmaLabel = null;
   if (warn && warn.ok && warn.level_key && RANK[warn.level_key] < RANK[level]) {
     level = warn.level_key;
     kmaLabel = warn.level_label;
   }
 
+  const split = splitWarnings(warn);
   const warnings = warn && warn.ok && Array.isArray(warn.all) ? warn.all.slice().sort() : [];
 
   return {
@@ -164,6 +166,9 @@ function assess(snap, warn) {
     mm3: worst ? worst.recent_3h_mm : 0,
     mm12: worst ? worst.recent_12h_mm : 0,
     warnings,
+    // 예고분은 단계와 무관하게 따로 들고 다닌다 (1회 알림 판단용)
+    pending: split.pending,
+    pendingSig: pendingSig(split.pending),
     // 상태키: 단계나 특보가 바뀌면 새 상황으로 보고 확인이 무효가 된다
     key: `${level}|${warnings.join(",")}`,
   };
@@ -294,6 +299,82 @@ async function dispatch(now, prev, event) {
   return { ...res, targets: targets.length, just_acked: justAcked, subs: subs.length };
 }
 
+// ---------- 특보의 예고와 실행을 나눈다 ----------
+//
+// 기상청은 미리 발표한다. 10시에 발표하고 12시에 발효하는 식이다.
+// 해제도 마찬가지로 며칠 앞서 예고되기도 한다.
+//
+// 대응은 발표 시점부터 시작한다.
+//   발표를 알아챈 즉시 단계를 올리고 반복 알림을 시작한다. 미리 대비하는 편이 낫다.
+//
+// 다만 발표와 실제 시각이 다르므로 두 번 알린다.
+//   발효 — 발표 때 "12:00 발효예정", 12시가 되면 "발효됨"
+//   해제 — 예고를 알았을 때 "26일 11:00 해제예정", 11시가 되면 "해제됨"
+//   예고를 받고 잊고 있다가 실제 시점을 놓치는 것을 막는다.
+
+// 기상청 시각 문자열(YYYYMMDDHHmm, 한국시각)을 밀리초로 바꾼다
+function kmaTmToMs(v) {
+  const t = String(v || "");
+  if (t.length < 12) return null;
+  const ms = Date.UTC(
+    Number(t.slice(0, 4)),
+    Number(t.slice(4, 6)) - 1,
+    Number(t.slice(6, 8)),
+    Number(t.slice(8, 10)),
+    Number(t.slice(10, 12))
+  );
+  return Number.isFinite(ms) ? ms - 9 * 3600 * 1000 : null;
+}
+
+function fmtWhen(ms) {
+  if (!ms) return "";
+  const k = new Date(ms + 9 * 3600 * 1000);
+  const wd = ["일", "월", "화", "수", "목", "금", "토"][k.getUTCDay()];
+  const hh = String(k.getUTCHours()).padStart(2, "0");
+  const mi = String(k.getUTCMinutes()).padStart(2, "0");
+  return `${k.getUTCMonth() + 1}월 ${k.getUTCDate()}일(${wd}) ${hh}:${mi}`;
+}
+
+/**
+ * 특보 목록을 실행분과 예고분으로 나눈다.
+ *   effective — 지금 실제로 효력이 있는 특보
+ *   pending   — 아직 오지 않은 발효·해제 예정
+ */
+function splitWarnings(warn) {
+  const all = warn && warn.ok && Array.isArray(warn.all) ? warn.all : [];
+  const held = (warn && Array.isArray(warn.held) ? warn.held : []).filter((h) => h && h.label);
+  const times = (warn && warn.times) || {};
+  const now = Date.now();
+
+  const heldMap = new Map(held.map((h) => [h.label, new Date(h.until).getTime()]));
+  const effective = [];
+  const pending = [];
+
+  for (const label of all) {
+    // 해제 예정: 지금은 효력이 있고, 예정 시각에 풀린다
+    if (heldMap.has(label)) {
+      effective.push(label);
+      pending.push({ kind: "해제", label, at: heldMap.get(label) });
+      continue;
+    }
+    // 발효 예정: 발표는 됐지만 발효시각이 아직 오지 않았다
+    const ef = kmaTmToMs(times[label] && times[label].tm_ef);
+    if (ef && ef > now) {
+      pending.push({ kind: "발효", label, at: ef });
+      continue;
+    }
+    effective.push(label);
+  }
+
+  pending.sort((a, b) => (a.at || 0) - (b.at || 0));
+  return { effective: effective.slice().sort(), pending };
+}
+
+// 예고 목록이 바뀌었는지 가리는 지문
+function pendingSig(pending) {
+  return (pending || []).map((p) => `${p.kind}|${p.label}|${p.at || 0}`).sort().join(";");
+}
+
 // 특보 이름을 계열과 등급으로 나눈다.
 //   폭염중대경보 → { family: "폭염", grade: 0 }
 //   폭염경보     → { family: "폭염", grade: 1 }
@@ -326,6 +407,14 @@ async function dispatchWarningChange(now, prev, event) {
   const subs = await readSubs(event);
   if (!subs.length) return { skipped: "구독자 없음" };
 
+  // 아직 발효 전인 특보에는 언제 발효되는지 덧붙인다.
+  // 그 시각이 되면 발효 알림이 한 번 더 나간다.
+  const pendMap = new Map(
+    (now.pending || []).filter((p) => p.kind === "발효").map((p) => [p.label, p.at])
+  );
+  const withWhen = (label) =>
+    pendMap.has(label) ? `${label} (${fmtWhen(pendMap.get(label))} 발효예정)` : label;
+
   const before = gradeMap(prev && prev.warnings);
   const after = gradeMap(now.warnings);
 
@@ -333,9 +422,9 @@ async function dispatchWarningChange(now, prev, event) {
 
   for (const [family, a] of after) {
     const b = before.get(family);
-    if (!b) added.push(a.label);
-    else if (a.grade < b.grade) up.push(`${b.label} → ${a.label}`);
-    else if (a.grade > b.grade) down.push(`${b.label} → ${a.label}`);
+    if (!b) added.push(withWhen(a.label));
+    else if (a.grade < b.grade) up.push(`${b.label} → ${withWhen(a.label)}`);
+    else if (a.grade > b.grade) down.push(`${b.label} → ${withWhen(a.label)}`);
   }
   for (const [family, b] of before) {
     if (!after.has(family)) removed.push(b.label);
@@ -367,6 +456,54 @@ async function dispatchWarningChange(now, prev, event) {
       group: "yd-rain-warning",
       url: "/",
       // key를 넣지 않으면 확인 버튼이 붙지 않는다(반복하지 않으므로 불필요)
+    },
+    event
+  );
+}
+
+/**
+ * 발효시각이 실제로 지났을 때 1회만 알린다.
+ *
+ * 발표 시점에는 이미 단계가 오르고 반복 알림이 나가고 있다.
+ * 이 알림은 "예고했던 그 시각이 됐다"를 알리는 것이라 반복하지 않는다.
+ */
+async function dispatchEffective(labels, event) {
+  if (!configured()) return { skipped: "VAPID 미설정" };
+  const subs = await readSubs(event);
+  if (!subs.length) return { skipped: "구독자 없음" };
+
+  return sendMany(
+    subs,
+    {
+      title: "영덕군 기상특보 발효",
+      body: `${labels.join(" · ")} 발효되었습니다.`,
+      tag: `yd-rain-effective-${Date.now()}`,
+      group: "yd-rain-warning",
+      url: "/",
+    },
+    event
+  );
+}
+
+/**
+ * 해제 예정이 새로 잡혔을 때 1회만 알린다.
+ *
+ * 해제는 며칠 앞서 예고되기도 한다. 예고만 알리고 끝내면 실제로 풀리는
+ * 순간을 놓치므로, 그 시각이 되면 기존 해제 알림이 한 번 더 나간다.
+ */
+async function dispatchReleasePending(items, event) {
+  if (!configured()) return { skipped: "VAPID 미설정" };
+  const subs = await readSubs(event);
+  if (!subs.length) return { skipped: "구독자 없음" };
+
+  return sendMany(
+    subs,
+    {
+      title: "영덕군 기상특보 해제예정",
+      body: items.map((p) => `${p.label} ${fmtWhen(p.at)} 해제 예정`).join("\n"),
+      tag: `yd-rain-release-${Date.now()}`,
+      group: "yd-rain-warning",
+      url: "/",
     },
     event
   );
@@ -424,6 +561,9 @@ exports.handler = async function (event) {
 
     const age = snap && snap.stored_at ? Date.now() - new Date(snap.stored_at).getTime() : Infinity;
     log.snap_age_sec = Number.isFinite(age) ? Math.round(age / 1000) : null;
+    // 군청이 실제로 몇 초 걸렸는지. 자료가 늦는 원인이 군청인지 우리 주기인지 가른다.
+    log.fetch_sec = snap && snap.fetch_elapsed_ms ? Math.round(snap.fetch_elapsed_ms / 1000) : null;
+    log.fetched_at = (snap && snap.fetched_at) || null;
 
     if (age >= REFRESH_AFTER_MS) {
       // 수집은 백그라운드에 맡기고 여기서는 기다리지 않는다.
@@ -456,6 +596,34 @@ exports.handler = async function (event) {
     const warningsChanged =
       !!prev && JSON.stringify(prevWarnings.slice().sort()) !== JSON.stringify(now.warnings);
 
+    // 예고했던 발효시각이 지났는지 본다.
+    // 반복 알림과 별개로 1회 보낸다 (반복이 돌고 있어도 이건 따로 나간다).
+    const wasPending = ((prev && prev.pending) || []).filter((p) => p.kind === "발효");
+    const stillPending = new Set((now.pending || []).map((p) => `${p.kind}|${p.label}`));
+    const becameEffective = wasPending
+      .filter((p) => !stillPending.has(`발효|${p.label}`))
+      .filter((p) => now.warnings.includes(p.label))
+      .map((p) => p.label);
+
+    if (becameEffective.length) {
+      log.effective_now = becameEffective;
+      log.dispatch_effective = await dispatchEffective(becameEffective, event);
+    }
+
+    // 해제 예정이 새로 잡혔으면 1회 알린다.
+    // 실제로 풀리는 시각에는 목록에서 빠지므로 기존 해제 알림이 따로 나간다.
+    const beforePending = new Set(
+      ((prev && prev.pending) || []).map((p) => `${p.kind}|${p.label}|${p.at || 0}`)
+    );
+    const newReleases = (now.pending || []).filter(
+      (p) => p.kind === "해제" && !beforePending.has(`해제|${p.label}|${p.at || 0}`)
+    );
+
+    if (prev && newReleases.length) {
+      log.release_pending = newReleases.map((p) => `${p.label} ${fmtWhen(p.at)}`);
+      log.dispatch_release_pending = await dispatchReleasePending(newReleases, event);
+    }
+
     if (active) {
       log.dispatch = await dispatch(now, prev, event);
     } else if (wasActive) {
@@ -467,6 +635,8 @@ exports.handler = async function (event) {
     } else {
       log.dispatch = { skipped: "평상시" };
     }
+
+    log.pending = (now.pending || []).map((p) => `${p.label} ${p.kind} ${fmtWhen(p.at)}`);
 
     // 알림을 켠 기기 수와 확인 상태 (점검용)
     try {
