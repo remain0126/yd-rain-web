@@ -230,10 +230,13 @@ function renderRanking(rows) {
 
 // ---------- Sparkline ----------
 
-const SP_W = 15, SP_H = 34, SP_PAD = 3;
+// 시간 한 칸의 너비. 좁은 화면에서는 최소값을 쓰고,
+// 화면이 넓으면 남는 폭만큼 벌려 그래프가 폭을 다 쓰게 한다.
+const SP_W_MIN = 15, SP_W_MAX = 46, SP_H = 34, SP_PAD = 3;
 
-function sparkline(hourValues, nowIdx) {
+function sparkline(hourValues, nowIdx, spW) {
   const n = hourValues.length || 24;
+  const SP_W = spW || SP_W_MIN;
   const width = n * SP_W;
   const AXIS_H = 12; // 하단 시각 라벨 영역
   const totalH = SP_H + AXIS_H;
@@ -280,9 +283,24 @@ function sparkline(hourValues, nowIdx) {
 
 // ---------- Detail list ----------
 
+// 창 크기가 바뀌면 칸 너비를 다시 계산해 그린다
+let lastDetail = null;
+let resizeTimer = null;
+window.addEventListener("resize", () => {
+  if (!lastDetail) return;
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => renderDetail(lastDetail.rows, lastDetail.columns), 200);
+});
+
 function renderDetail(rows, columns) {
   const el = $("detailList");
   const hourCols = columns.filter((c) => /^\d{2}시$/.test(c));
+
+  // 그릴 수 있는 폭을 재서 칸 너비를 정한다.
+  // PC에서는 한 칸이 넓어져 그래프가 화면을 가득 채운다.
+  const avail = Math.max(0, (el.clientWidth || 0) - 20);
+  const cols = hourCols.length || 24;
+  const spW = Math.max(SP_W_MIN, Math.min(SP_W_MAX, Math.floor(avail / cols)));
 
   const allNames = Object.keys(rows);
   let lastIdx = -1;
@@ -302,9 +320,11 @@ function renderDetail(rows, columns) {
           <span class="dt-name ${sub ? "sub" : ""}">${dn(name)}</span>
           <span class="dt-nums">전날 <b>${fmtMm(r["전날누적"])}</b> · 오늘 <b>${fmtMm(r["오늘누계"])}</b> · 당월 <b>${fmtMm(r["당월누계"])}</b></span>
         </div>
-        <div class="dt-spark">${sparkline(hv, nowIdx)}</div>
+        <div class="dt-spark">${sparkline(hv, nowIdx, spW)}</div>
       </div>`;
   };
+
+  lastDetail = { rows, columns };
 
   const eup = EUPMYEON_ORDER.filter((n) => rows[n]);
   const etc = allNames.filter((n) => !EUPMYEON_ORDER.includes(n)).sort((a, b) => a.localeCompare(b, "ko"));

@@ -43,14 +43,11 @@ html, body {
 /* ---------- App bar ---------- */
 
 .app-bar {
-  /* 상태 띠까지 한 덩어리로 감싼다 */
+  /* 테두리와 상자를 두지 않는다. 배경 위에 바로 얹어 가볍게 보이게 하고,
+     아래 상태 띠만 색으로 구분한다. */
   margin: 8px 0 14px;
-  padding: 14px 16px 0;
+  padding: 14px 4px 0;
   position: relative;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  overflow: hidden;
 }
 
 /* 제목을 화면 정중앙에 둔다.
@@ -437,6 +434,11 @@ details[open] .chev { transform: rotate(180deg); }
 .dt-nums { font-size: 0.74rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .dt-nums b { color: var(--text); font-weight: 700; }
 .dt-spark { width: 100%; overflow-x: auto; }
+/* 넓은 화면에서는 그래프가 폭을 다 쓰므로 가로 스크롤이 필요 없다 */
+@media (min-width: 1000px) {
+  .dt-spark { overflow-x: visible; }
+  .detail-list { padding: 0 12px 12px; }
+}
 
 .etc-divider {
   padding: 12px 8px 4px;
@@ -754,9 +756,9 @@ details[open] .chev { transform: rotate(180deg); }
   .center-card { padding: 17px 19px; }
   .cc-name { font-size: 1.08rem; }
 
-  .app-bar { padding: 18px 22px 0; }
-  .refresh-btn { top: 36px; right: 16px; }
-  .status-band { margin: 0 -22px; padding: 12px 20px; }
+  .app-bar { padding: 18px 6px 0; }
+  .refresh-btn { top: 36px; right: 2px; }
+  .status-band { margin: 0 -6px; padding: 12px 20px; }
 }
 
 /* 아주 넓은 화면에서는 센터 카드도 두 장씩 놓는다 */
@@ -781,12 +783,12 @@ details[open] .chev { transform: rotate(180deg); }
   justify-content: center;
   flex-wrap: wrap;
   gap: 4px 10px;
-  margin: 0 -16px;
+  margin: 0 -4px;
   padding: 11px 14px;
+  border-radius: 10px;
   font-size: 0.72rem;
   color: var(--muted);
-  background: color-mix(in srgb, var(--band-color, var(--normal)) 6%, transparent);
-  border-top: 1px solid color-mix(in srgb, var(--band-color, var(--normal)) 24%, transparent);
+  background: color-mix(in srgb, var(--band-color, var(--normal)) 7%, transparent);
   font-variant-numeric: tabular-nums;
 }
 
