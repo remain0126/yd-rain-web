@@ -6,7 +6,9 @@ const cheerio = require("cheerio");
 
 const YD_URL = "https://www.yd.go.kr/?p=1020";
 const FETCH_TIMEOUT_DEFAULT = 9000;   // 사용자 접속 함수용(무료 10초 제한 안쪽)
-const FETCH_TIMEOUT_BACKGROUND = 90000; // 백그라운드 함수용(최대 15분이라 여유)
+// 백그라운드 함수는 최대 15분까지 살 수 있다. 영덕군청 페이지는 응답에
+// 1~2분이 걸릴 때가 있으므로 넉넉히 잡는다. 늦게 오면 늦게 받을 뿐 손해가 없다.
+const FETCH_TIMEOUT_BACKGROUND = 240000;
 
 function toValue(text) {
   const t = (text || "").trim();

@@ -1,7 +1,10 @@
 // netlify/functions/watch.js
 // 1분마다 외부 스케줄러(cron-job.org)가 호출한다. 두 가지 일을 한다.
 //
-//   1) 강우 자료가 오래됐으면 새로 수집한다 (무료 플랜에서 예약 함수가 안 도는 문제 보완)
+//   1) 강우 자료가 오래됐으면 백그라운드 수집을 걸어둔다
+//      (직접 수집하지 않는다. 영덕군청 페이지는 응답에 1~2분이 걸릴 때가 있는데
+//       이 함수는 10초 안에 끝나야 하므로 스스로 받으면 거의 끊긴다.
+//       기다릴 수 있는 refresh-background에 넘기고, 저장된 최신값으로 판정한다)
 //   2) 상황을 판정해 조건에 맞으면 구독자에게 푸시를 보낸다
 //
 // 발송 규칙 (확정)
@@ -11,7 +14,6 @@
 //   - 단계가 오르면 확인이 무효가 되고 1분 몰아치기를 다시 시작
 //   - 상황이 끝나면 해제 알림을 1회 보낸다
 
-const { buildData } = require("./_build");
 const { getWarning } = require("./_warning");
 const { readSubs, writeSubs, sendMany, configured } = require("./_push");
 const logbook = require("./_logbook");
@@ -22,7 +24,12 @@ const WATCH_KEY = "watch-state";
 const BURST_COUNT = 15; // 1분 간격으로 몰아치는 횟수
 const BURST_MS = 60 * 1000; // 몰아치는 동안의 간격
 const SLOW_MS = 10 * 60 * 1000; // 그 이후 간격
-const REFRESH_AFTER_MS = 4.5 * 60 * 1000; // 자료가 이만큼 묵으면 새로 수집
+// 매분 수집을 건다. 앞 건이 끝나기를 기다리지 않는다.
+// 군청 응답이 1분이면 1분 만에, 2분이면 2분 만에 화면에 뜬다.
+const REFRESH_AFTER_MS = 55 * 1000; // 자료가 이만큼 묵으면 수집을 건다
+const MAX_INFLIGHT = 3; // 동시에 돌릴 수 있는 수집 건수
+const INFLIGHT_KEY = "refresh-inflight";
+const INFLIGHT_TTL_MS = 5 * 60 * 1000; // 이 시간이 지난 건은 실패로 보고 셈에서 뺀다
 
 const RANK = { extreme: 0, critical: 1, high: 2, low: 3, normal: 4 };
 const ALERT_FROM = RANK.low; // 관심단계부터 발송
@@ -44,6 +51,70 @@ function rainStore(event) {
     return blobs.getStore("rainfall");
   } catch (_) {
     return null;
+  }
+}
+
+// ---------- 백그라운드 수집 요청 ----------
+
+function siteBaseUrl(event) {
+  const headers = (event && event.headers) || {};
+  const host = headers.host || headers.Host;
+  const proto = headers["x-forwarded-proto"] || "https";
+  return host ? `${proto}://${host}` : "";
+}
+
+// 수집을 걸어두고 곧바로 돌아온다. 결과를 기다리지 않는다.
+//
+// 앞 건이 끝나지 않았어도 새로 건다. 군청 응답이 들쭉날쭉하기 때문에,
+// 매분 던져두면 먼저 도착한 것부터 화면에 반영된다.
+// 다만 무한정 쌓이면 군청에 부담이 되므로 동시 3건까지만 허용한다.
+// (오래된 것이 나중에 도착해 새 자료를 덮어쓰는 문제는 refresh-background에서 막는다)
+async function requestRefresh(rs, event, snapStoredAt) {
+  let inflight = [];
+
+  if (rs) {
+    try {
+      const cur = await rs.get(INFLIGHT_KEY, { type: "json" });
+      if (cur && Array.isArray(cur.list)) inflight = cur.list;
+    } catch (_) {}
+
+    const now = Date.now();
+    // 시간이 지난 건과 이미 결과가 도착한 건은 셈에서 뺀다
+    const snapMs = snapStoredAt ? new Date(snapStoredAt).getTime() : 0;
+    inflight = inflight.filter((t) => {
+      const ms = new Date(t).getTime();
+      if (!Number.isFinite(ms)) return false;
+      if (now - ms > INFLIGHT_TTL_MS) return false;
+      return ms > snapMs;
+    });
+
+    if (inflight.length >= MAX_INFLIGHT) {
+      try {
+        await rs.setJSON(INFLIGHT_KEY, { list: inflight });
+      } catch (_) {}
+      return `대기 ${inflight.length}건, 건너뜀`;
+    }
+
+    inflight.push(new Date().toISOString());
+    try {
+      await rs.setJSON(INFLIGHT_KEY, { list: inflight });
+    } catch (_) {}
+  }
+
+  const baseUrl = siteBaseUrl(event);
+  if (!baseUrl) return "주소 확인 불가";
+
+  try {
+    const resp = await fetch(`${baseUrl}/.netlify/functions/refresh-background`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: "watch", requested_at: new Date().toISOString() }),
+      // 백그라운드 함수는 접수만 하고 끝나므로 오래 기다릴 일이 없다
+      signal: AbortSignal.timeout(4000),
+    });
+    return resp.ok ? `요청함 (대기 ${inflight.length}건)` : `요청 실패 ${resp.status}`;
+  } catch (e) {
+    return `요청 오류 ${String(e && e.message)}`;
   }
 }
 
@@ -352,13 +423,14 @@ exports.handler = async function (event) {
     } catch (_) {}
 
     const age = snap && snap.stored_at ? Date.now() - new Date(snap.stored_at).getTime() : Infinity;
+    log.snap_age_sec = Number.isFinite(age) ? Math.round(age / 1000) : null;
+
     if (age >= REFRESH_AFTER_MS) {
-      try {
-        snap = await buildData(true, event);
-        log.refreshed = true;
-      } catch (e) {
-        log.refresh_error = String(e && e.message);
-      }
+      // 수집은 백그라운드에 맡기고 여기서는 기다리지 않는다.
+      // 이번 판정은 저장된 값으로 하고, 새 값은 다음 분에 반영된다.
+      log.refresh = await requestRefresh(rs, event, snap && snap.stored_at);
+    } else {
+      log.refresh = "생략";
     }
 
     // 2) 특보 확인
