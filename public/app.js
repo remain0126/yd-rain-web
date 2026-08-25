@@ -777,10 +777,17 @@ function fmtReleaseFull(iso) {
   return `${d.getMonth() + 1}월 ${d.getDate()}일(${WEEKDAY[d.getDay()]}) ${fmtHm(iso)}`;
 }
 
+// 기상청 시각 문자열(YYYYMMDDHHmm)을 표기용으로 바꾼다.
+// 해제예정과 같은 형식이 되도록 요일까지 붙인다.
 function fmtKmaTm(v) {
   const s = String(v || "");
   if (s.length < 12) return "—";
-  return `${Number(s.slice(4, 6))}월 ${Number(s.slice(6, 8))}일 ${s.slice(8, 10)}:${s.slice(10, 12)}`;
+  const y = Number(s.slice(0, 4));
+  const mo = Number(s.slice(4, 6));
+  const da = Number(s.slice(6, 8));
+  const d = new Date(y, mo - 1, da);
+  const wd = isNaN(d.getTime()) ? "" : `(${WEEKDAY[d.getDay()]})`;
+  return `${mo}월 ${da}일${wd} ${s.slice(8, 10)}:${s.slice(10, 12)}`;
 }
 
 function closeWarnPopup() {
