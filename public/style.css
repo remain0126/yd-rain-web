@@ -460,6 +460,95 @@ details[open] .chev { transform: rotate(180deg); }
   padding: 10px 8px 0;
 }
 
+/* ── 첫 진입 연출 ─────────────────────────────────────────────
+   카드가 아래에서 밀려 올라오며 자리를 잡고, 빛이 한 번 스친다.
+   위에서부터 조금씩 늦게 시작해 시선이 아래로 흐른다.
+
+   첫 진입에서만 돈다. 1분마다 갱신될 때마다 들썩이면 숫자를 읽기
+   어렵고, 재난 화면으로서 산만하다. */
+
+.stage-in {
+  perspective: 1000px;
+}
+
+.stage-in > * {
+  animation: riseIn 700ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.stage-in > *:nth-child(1) { animation-delay: 0ms; }
+.stage-in > *:nth-child(2) { animation-delay: 70ms; }
+.stage-in > *:nth-child(3) { animation-delay: 140ms; }
+.stage-in > *:nth-child(4) { animation-delay: 210ms; }
+.stage-in > *:nth-child(5) { animation-delay: 280ms; }
+.stage-in > *:nth-child(n + 6) { animation-delay: 350ms; }
+
+@keyframes riseIn {
+  from { opacity: 0; transform: translate3d(0, 13px, -30px) rotateX(4deg); }
+  to { opacity: 1; transform: none; }
+}
+
+.head-in {
+  animation: fadeUp 700ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 카드 위를 한 번 지나가는 빛. 평소에는 화면 밖에 숨어 있다. */
+.cc-sheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transform: translateX(-120%);
+  background: linear-gradient(
+    105deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.09) 50%,
+    transparent 62%
+  );
+}
+
+.stage-in .cc-sheen {
+  animation: sweep 1100ms cubic-bezier(0.4, 0, 0.2, 1) 360ms 1 forwards;
+}
+.stage-in > *:nth-child(2) .cc-sheen { animation-delay: 430ms; }
+.stage-in > *:nth-child(3) .cc-sheen { animation-delay: 500ms; }
+
+@keyframes sweep {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(120%); }
+}
+
+/* 막대는 값이 채워지듯 왼쪽에서 자란다.
+   순위표는 화면을 내려야 보이므로, 눈에 들어온 순간에 한 번만 돈다. */
+.reveal-bars .rk-fill {
+  transform-origin: left;
+  animation: growBar 900ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+.reveal-bars .rk-row:nth-child(2) .rk-fill { animation-delay: 70ms; }
+.reveal-bars .rk-row:nth-child(3) .rk-fill { animation-delay: 140ms; }
+.reveal-bars .rk-row:nth-child(4) .rk-fill { animation-delay: 210ms; }
+.reveal-bars .rk-row:nth-child(n + 5) .rk-fill { animation-delay: 280ms; }
+
+@keyframes growBar {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* 단계가 올라간 카드는 자리를 잡은 뒤 테두리가 한 번 번진다 */
+.center-card.elevated.stage-glow {
+  animation: riseIn 700ms cubic-bezier(0.16, 1, 0.3, 1) backwards,
+             edgeGlow 1600ms ease-out 820ms 1;
+}
+
+@keyframes edgeGlow {
+  0% { box-shadow: 0 0 0 1px var(--tier-color), 0 8px 24px -12px var(--tier-color); }
+  35% { box-shadow: 0 0 0 1px var(--tier-color), 0 0 26px -4px var(--tier-color); }
+  100% { box-shadow: 0 0 0 1px var(--tier-color), 0 8px 24px -12px var(--tier-color); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }

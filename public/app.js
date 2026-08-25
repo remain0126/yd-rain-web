@@ -153,6 +153,8 @@ function renderCenters(rows) {
       // 자체 강우 계산 기준으로 구분한다. 기상청 특보와 혼동되지 않도록
       // "특보 대상" 대신 관심지역 / 위험지역으로 표기한다.
       const areaLabel = RANK[worst.key] <= RANK.high ? "위험지역" : "관심지역";
+      // 첫 진입에서 카드 위를 한 번 지나가는 빛. 평소에는 화면 밖에 숨어 있다.
+      const sheen = `<span class="cc-sheen"></span>`;
       const townsLine = elevated.length
         ? `<div class="cc-towns">${areaLabel} <b>${elevated.join(" · ")}</b></div>`
         : `<div class="cc-towns">관할 ${c.towns.map(dn).join(" · ")}</div>`;
@@ -163,6 +165,7 @@ function renderCenters(rows) {
       const warnLine = "";
       return `
         <div class="center-card ${isNormal ? "" : "elevated"}" style="--tier-color:${worst.color};">
+          ${sheen}
           <div class="cc-top">
             <span class="cc-name">${c.name}<small>119안전센터</small></span>
             <span class="cc-badge ${isNormal ? "normal" : ""} ${!isNormal && isDarkColor(worst.color) ? "dark-bg" : ""}">${worst.label}</span>
@@ -349,6 +352,80 @@ function loadLocal() {
   } catch (_) { return null; }
 }
 
+// 마지막으로 본 화면을 다시 꺼내 쓸 때의 표시.
+//
+// 앱을 열면 저장해 둔 화면을 먼저 그려 즉시 뜨게 한다. 그런데 오래 닫아두었다가
+// 열면 몇 분 전 숫자가 최신인 것처럼 보인다. 재난 상황에서 이는 위험하다.
+//
+// 그렇다고 빈 화면으로 두는 것은 더 나쁘다. 통신이 끊긴 현장에서는 묵은 숫자라도
+// 있는 편이 낫다. 그래서 지우지 않고, 옛 화면임을 분명히 밝힌 뒤
+// 새 자료가 오면 조용히 바꿔 끼운다.
+// 첫 진입 연출.
+//
+// 카드가 아래에서 밀려 올라오며 자리를 잡는다. 자료가 처음 그려질 때만
+// 한 번 돈다. 1분마다 갱신될 때마다 들썩이면 숫자를 읽기 어렵고,
+// 재난 화면으로서 산만하다.
+let introDone = false;
+
+function playIntro() {
+  if (introDone) return;
+  introDone = true;
+
+  const el = $("centerStatus");
+  if (el) {
+    el.classList.remove("stage-in");
+    // 클래스를 다시 붙이기 전에 한 번 재계산시켜야 애니메이션이 다시 걸린다
+    void el.offsetWidth;
+    el.classList.add("stage-in");
+    // 연출이 끝나면 떼어낸다. 남겨두면 갱신 때마다 카드가 다시 들썩인다.
+    setTimeout(() => el.classList.remove("stage-in"), 2000);
+  }
+
+  watchRanking();
+
+  // 단계가 올라간 카드는 자리를 잡은 뒤 테두리가 한 번 번진다
+  document.querySelectorAll(".center-card.elevated").forEach((c) => {
+    c.classList.add("stage-glow");
+  });
+
+  const head = document.querySelector(".app-sub");
+  if (head) head.classList.add("head-in");
+}
+
+// 읍면 순위는 화면을 내려야 보인다. 첫 진입에 같이 돌려버리면
+// 아무도 못 보는 사이에 끝나므로, 눈에 들어온 순간에 한 번만 돌린다.
+let barsShown = false;
+
+function watchRanking() {
+  const el = $("ranking");
+  if (!el || barsShown || typeof IntersectionObserver !== "function") return;
+
+  const io = new IntersectionObserver(
+    (entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      barsShown = true;
+      io.disconnect();
+      el.classList.add("reveal-bars");
+      // 클래스를 남겨두면 1분마다 새로 그려진 막대까지 다시 자란다.
+      // 연출이 끝나면 떼어낸다.
+      setTimeout(() => el.classList.remove("reveal-bars"), 1600);
+    },
+    { threshold: 0.25 }
+  );
+  io.observe(el);
+}
+
+function markCachedView(data) {
+  const t = data && (data.fetched_at || data.stored_at);
+  const hm = t
+    ? new Date(t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
+    : "—";
+  const el = $("updatedAt");
+  if (el) el.textContent = `이전 화면 · 자료기준 ${hm} · 새 자료 확인 중`;
+  const dot = $("connDot");
+  if (dot) dot.className = "dot dot-stale";
+}
+
 function paint(data, opts) {
   const rows = data.rows || {};
   const columns = data.columns || [];
@@ -466,6 +543,7 @@ async function load(force) {
       const local = loadLocal();
       if (local) {
         paint(local, { cachedView: true });
+        markCachedView(local);
       } else {
         $("updatedAt").textContent = "자료 수집 중 · 잠시 후 자동 갱신";
         $("connDot").className = "dot dot-stale";
@@ -479,6 +557,7 @@ async function load(force) {
 
     paint(data, { cachedView: false });
     saveLocal(data);
+    playIntro();
 
     // 수동 새로고침 또는 오래된 자료로 인해 백그라운드 수집을 요청했다면
     // 실제 저장이 끝난 뒤 한 번 더 읽어 화면을 교체한다.
@@ -487,6 +566,7 @@ async function load(force) {
     const local = loadLocal();
     if (local) {
       paint(local, { cachedView: true });
+      markCachedView(local);
     } else {
       $("updatedAt").textContent = "자료 수신 대기 중 · 잠시 후 자동 갱신";
       $("connDot").className = "dot dot-stale";
@@ -504,7 +584,13 @@ $("refreshBtn").addEventListener("click", () => load(true));
 // 재방문이면 저장된 직전 데이터를 먼저 즉시 그려서 체감 속도 향상,
 // 그 뒤 백그라운드로 최신 데이터를 받아 교체
 const cached = loadLocal();
-if (cached) paint(cached, { cachedView: true });
+if (cached) {
+  paint(cached, { cachedView: true });
+  markCachedView(cached);
+  playIntro();
+} else {
+  $("updatedAt").textContent = "자료 확인 중";
+}
 
 load();
 // 1분 주기 자동 새로고침.
