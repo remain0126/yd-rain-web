@@ -427,7 +427,11 @@ function markCachedView(data) {
     ? new Date(t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
     : "—";
   const el = $("updatedAt");
-  if (el) el.textContent = `이전 화면 · 자료기준 ${hm} · 새 자료 확인 중`;
+  if (el) el.innerHTML = `자료기준 <b>${hm}</b> · 새 자료 확인 중`;
+  const st = $("rainState");
+  if (st) st.textContent = "이전 화면";
+  const band = $("statusBand");
+  if (band) band.style.setProperty("--band-color", "#8291a3");
   const dot = $("connDot");
   if (dot) dot.className = "dot dot-stale";
 }
@@ -468,9 +472,17 @@ function paint(data, opts) {
   renderRanking(rows);
   renderDetail(rows, columns);
 
-  $("dateLabel").textContent = data.date_label
-    ? data.date_label.replace("당일", "").replace("시간별 강우량", "").trim() + " 기준"
-    : "영덕군 재난안전대책본부 관측망";
+  // 군청 자료의 날짜에 요일을 붙여 보여준다.
+  // 자정을 넘겨도 자료의 날짜를 따라가므로 화면과 숫자가 어긋나지 않는다.
+  const dm = String(data.date_label || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (dm) {
+    const dd = new Date(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]));
+    const wd = ["일", "월", "화", "수", "목", "금", "토"][dd.getDay()];
+    $("dateLabel").innerHTML =
+      `${Number(dm[1])}년 ${Number(dm[2])}월 ${Number(dm[3])}일 <b>${wd}요일</b>`;
+  } else {
+    $("dateLabel").textContent = "영덕군 재난안전대책본부 관측망";
+  }
 
   const t = new Date(data.fetched_at || data.stored_at || Date.now());
   const nowTime = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
@@ -489,11 +501,23 @@ function paint(data, opts) {
   const anyRain = Object.values(rows).some(
     (r) => (r["오늘누계"] || 0) > 0 || (r["전날누적"] || 0) > 0
   );
-  const noRainNote = anyRain ? "" : " · 현재 무강우";
+  // 상태 띠. 가장 높은 단계를 띠 색으로 삼는다.
+  // 강우가 없으면 양호 색으로 두어 평상시임을 알린다.
+  const worstKey = Object.values(rows).reduce((acc, r) => {
+    const k = r.risk_key || "normal";
+    return RANK[k] < RANK[acc] ? k : acc;
+  }, "normal");
+  const worstTier = worstKey === "normal" ? NORMAL : TIERS.find((t) => t.key === worstKey) || NORMAL;
+
+  const band = $("statusBand");
+  if (band) band.style.setProperty("--band-color", worstTier.color);
+  const stateEl = $("rainState");
+  if (stateEl) stateEl.textContent = anyRain ? worstTier.label : "무강우";
 
   // 항상 "자료기준 · 확인" 형식으로 표시 (실패/지연 문구 없이 신뢰성 유지).
   // 점 색: 확인 시점과 자료기준이 크게 벌어지면(20분 초과) 주황으로만 '오래됨'을 은근히 표시.
-  $("updatedAt").textContent = "자료기준 " + dataStamp + " · 확인 " + nowTime + noRainNote;
+  $("updatedAt").innerHTML =
+    `자료기준 <b>${dataStamp}</b> · 확인 <b>${nowTime}</b>`;
 
   const ageMin = (now.getTime() - t.getTime()) / 60000;
   if (ageMin > 20) {

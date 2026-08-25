@@ -43,14 +43,37 @@ html, body {
 /* ---------- App bar ---------- */
 
 .app-bar {
-  padding: 12px 4px 6px;
+  /* 상태 띠까지 한 덩어리로 감싼다 */
+  margin: 8px 0 14px;
+  padding: 14px 16px 0;
+  position: relative;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
 }
 
+/* 제목을 화면 정중앙에 둔다.
+   오른쪽 새로고침만 있으면 제목이 그만큼 왼쪽으로 밀려, 눈에는
+   가운데로 보이지 않는다. 왼쪽에 같은 폭의 빈칸을 둬 균형을 맞춘다.
+   글자와 단추 크기는 종전 그대로다. */
 .app-bar-top {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
+}
+
+/* 새로고침은 자리를 차지하지 않고 오른쪽 위에 얹는다.
+   자리를 차지하게 두면 제목이 그만큼 좁아져 긴 제목이 단추와 겹친다.
+   대신 제목 좌우에 단추 폭만큼 여백을 둬 절대 겹치지 않게 한다. */
+.app-bar-spacer { display: none; }
+
+.app-bar-main {
+  flex: 1;
+  min-width: 0;
+  padding: 0 42px;
+  text-align: center;
 }
 
 .app-title {
@@ -60,21 +83,26 @@ html, body {
   white-space: nowrap;
 }
 
-.app-sub {
-  font-size: 0.78rem;
-  color: var(--muted);
-  margin-top: 2px;
+/* 좁은 기기에서 제목이 잘리지 않도록 조금 줄인다 */
+@media (max-width: 359px) {
+  .app-title { font-size: 1.2rem; }
 }
 
+/* 날짜와 요일. 제목과는 조금 떼고, 담당자 줄과는 바짝 붙인다.
+   제목·날짜·담당자가 한 덩어리로 읽히고 상태 띠가 분리되도록 한다. */
+.app-sub {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.app-sub b { color: #c9d4e2; font-weight: 600; }
+
 .manager-info {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  margin-top: 8px;
-  padding: 8px 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  margin-top: 5px;
+  padding-bottom: 15px;
+  font-size: 0.66rem;
+  color: #5b6a7d;
+  text-align: center;
 }
 .manager-info .mi-row {
   display: flex;
@@ -146,12 +174,16 @@ html, body {
 .push-note b { color: var(--text); font-weight: 700; }
 
 .refresh-btn {
+  position: absolute;
+  top: 34px;
+  right: 10px;
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  /* 둥근 단추. 머릿글의 각진 상자 안에서 유일하게 둥글어 눈에 잡힌다. */
+  border-radius: 50%;
   border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
+  background: transparent;
+  color: var(--muted);
   font-size: 1.3rem;
   cursor: pointer;
   display: flex;
@@ -159,13 +191,14 @@ html, body {
   justify-content: center;
   flex-shrink: 0;
 }
-.refresh-btn:active { background: var(--surface-2); transform: scale(0.95); }
+.refresh-btn:active { background: var(--surface); color: var(--text); transform: scale(0.95); }
 #refreshIcon.spin { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .updated-line {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
   padding: 0 4px 14px;
   font-size: 0.74rem;
@@ -679,3 +712,89 @@ details[open] .chev { transform: rotate(180deg); }
   flex-shrink: 0;
   white-space: nowrap;
 }
+
+/* ── 넓은 화면 2단 배치 ────────────────────────────────────────
+   휴대전화는 지금 그대로 한 줄로 쌓인다. 가로가 넉넉한 PC에서만
+   좌우로 나눠, 센터 현황과 읍면 순위를 한눈에 같이 보게 한다.
+
+   재난대책본부 상황실 모니터에서는 스크롤 없이 두 가지를 동시에
+   확인하는 편이 낫다. 시간대별 상세와 기준표는 가로로 긴 표라
+   아래에 폭 전체를 쓴다. */
+
+@media (min-width: 1000px) {
+  .app {
+    max-width: 1180px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 22px;
+    align-content: start;
+    padding: calc(var(--safe-top) + 14px) 24px calc(var(--safe-bottom) + 40px);
+  }
+
+  /* 표제·상태줄·아래쪽 표는 폭 전체 */
+  .app > .app-bar,
+  .app > .app-foot,
+  .app > .section:nth-of-type(3),
+  .app > .section:nth-of-type(4) {
+    grid-column: 1 / -1;
+  }
+
+  /* 센터 현황은 왼쪽, 읍면 순위는 오른쪽 */
+  .app > .section:nth-of-type(1) { grid-column: 1; }
+  .app > .section:nth-of-type(2) { grid-column: 2; }
+
+  /* 두 단의 높이가 달라도 각자 위에서부터 채운다 */
+  .app > .section:nth-of-type(1),
+  .app > .section:nth-of-type(2) {
+    align-self: start;
+  }
+
+  /* 넓어진 만큼 글자와 여백을 조금 키운다 */
+  .app-title { font-size: 1.42rem; }
+  .center-card { padding: 17px 19px; }
+  .cc-name { font-size: 1.08rem; }
+
+  .app-bar { padding: 18px 22px 0; }
+  .refresh-btn { top: 36px; right: 16px; }
+  .status-band { margin: 0 -22px; padding: 12px 20px; }
+}
+
+/* 아주 넓은 화면에서는 센터 카드도 두 장씩 놓는다 */
+@media (min-width: 1500px) {
+  .app { max-width: 1440px; }
+  .center-stack {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+}
+
+
+/* ── 상태 띠 ───────────────────────────────────────────────────
+   지금 상황을 색 면으로 알린다. 단계가 오르면 띠 전체가 그 색으로
+   물들어, 상황실 화면에서 멀리서도 상태가 읽힌다.
+   오른쪽 점은 강우와 무관하게 자료가 새것인지를 알린다. */
+
+.status-band {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0 -16px;
+  padding: 11px 14px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--band-color, var(--normal)) 6%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--band-color, var(--normal)) 24%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.sb-state {
+  color: var(--band-color, var(--normal));
+  font-weight: 700;
+}
+
+.sb-sep { color: #41506180; }
+
+.status-band b { color: #c9d4e2; font-weight: 600; }

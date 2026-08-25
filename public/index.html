@@ -19,6 +19,9 @@
   <div class="app">
     <header class="app-bar">
       <div class="app-bar-top">
+        <!-- 왼쪽 빈칸은 오른쪽 새로고침과 같은 폭이다.
+             제목이 화면 정중앙에 오게 하려고 둔다. -->
+        <span class="app-bar-spacer" aria-hidden="true"></span>
         <div class="app-bar-main">
           <div class="app-title">영덕군 강우상황 모니터링</div>
           <div class="app-sub" id="dateLabel">불러오는 중…</div>
@@ -33,16 +36,17 @@
       </div>
       <div class="push-note" id="pushNote" hidden></div>
       <div class="manager-info">
-        <div class="mi-row"><span class="mi-k">관리부서</span><span class="mi-v">예방안전과</span></div>
-        <div class="mi-row"><span class="mi-k">관리자</span><span class="mi-v">예방총괄계 정다호</span></div>
-        <div class="mi-row"><span class="mi-k">관련문의</span><a class="mi-v mi-tel" href="tel:054-730-1536">054-730-1536</a></div>
+        예방안전과 정다호 · <a class="mi-tel" href="tel:054-730-1536">054-730-1536</a>
+      </div>
+
+      <!-- 상태 띠. 단계가 오르면 이 띠 전체가 그 색으로 물든다. -->
+      <div class="status-band" id="statusBand">
+        <span class="sb-state" id="rainState">확인 중</span>
+        <span class="sb-sep" aria-hidden="true">|</span>
+        <span id="updatedAt">최신 데이터 확인 중…</span>
+        <span id="connDot" class="dot dot-unknown"></span>
       </div>
     </header>
-
-    <div class="updated-line">
-      <span id="updatedAt">최신 데이터 확인 중…</span>
-      <span id="connDot" class="dot dot-unknown"></span>
-    </div>
 
     <!-- 센터 상황 요약 (가장 위, 가장 크게) -->
     <section class="section">
