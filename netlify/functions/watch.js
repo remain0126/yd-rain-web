@@ -52,16 +52,49 @@ function blobStore(event) {
   }
 }
 
-// Netlify Blobs는 기본이 느슨한 읽기다. 저장된 값이 각 지역 캐시에 퍼지는 데
-// 최대 60초가 걸려, 방금 수집한 자료를 읽어도 한 세대 전 값이 나올 수 있다.
-// 강우 자료는 늘 최신이어야 하므로 강한 읽기로 원본을 직접 본다.
-// 읽기가 수십 밀리초 느려지지만, 자료가 1분 묵는 것보다는 낫다.
-// 감시가 묵은 값으로 단계를 매기면 알림도 그만큼 늦는다.
+
+// 저장된 강우 자료를 읽는다.
+//
+// Netlify Blobs는 기본이 느슨한 읽기다. 각 지역 캐시에 값이 퍼지는 데 최대
+// 60초가 걸려, 방금 수집한 자료를 읽어도 한 세대 전 값이 나올 수 있다.
+// 앱을 오랜만에 열었을 때 자료가 유난히 묵어 보이는 원인이 이것이다.
+//
+// 강한 읽기(consistency: "strong")는 캐시를 건너뛰고 원본을 직접 본다.
+// 다만 실행 환경에 따라 그 경로에 필요한 인증이 없어 통째로 실패한다.
+// (2026-08-25, 강한 읽기만 쓰도록 바꿨다가 자료를 아예 못 읽어 되돌림)
+//
+// 그래서 먼저 강한 읽기를 시도하고, 안 되면 기본 읽기로 넘어간다.
+// 되는 환경에서는 60초를 벌고, 안 되는 환경에서도 종전과 똑같이 동작한다.
+async function readLatest(event) {
+  let blobs;
+  try {
+    blobs = require("@netlify/blobs");
+    if (event && typeof blobs.connectLambda === "function") blobs.connectLambda(event);
+  } catch (_) {
+    return { snap: null, mode: "블롭 없음" };
+  }
+
+  try {
+    const s = blobs.getStore({ name: "rainfall", consistency: "strong" });
+    const v = await s.get("latest", { type: "json" });
+    if (v) return { snap: v, mode: "강한읽기" };
+  } catch (_) {}
+
+  try {
+    const s = blobs.getStore("rainfall");
+    const v = await s.get("latest", { type: "json" });
+    if (v) return { snap: v, mode: "기본읽기" };
+  } catch (_) {}
+
+  return { snap: null, mode: "읽기실패" };
+}
+
+// 수집 잠금 등 쓰기용. 읽기는 위의 readLatest를 쓴다.
 function rainStore(event) {
   try {
     const blobs = require("@netlify/blobs");
     if (event && typeof blobs.connectLambda === "function") blobs.connectLambda(event);
-    return blobs.getStore({ name: "rainfall", consistency: "strong" });
+    return blobs.getStore("rainfall");
   } catch (_) {
     return null;
   }
@@ -567,10 +600,9 @@ exports.handler = async function (event) {
   try {
     // 1) 강우 자료가 묵었으면 새로 수집
     const rs = rainStore(event);
-    let snap = null;
-    try {
-      snap = rs ? await rs.get("latest", { type: "json" }) : null;
-    } catch (_) {}
+    const read = await readLatest(event);
+    const snap = read.snap;
+    log.read_mode = read.mode;
 
     const age = snap && snap.stored_at ? Date.now() - new Date(snap.stored_at).getTime() : Infinity;
     log.snap_age_sec = Number.isFinite(age) ? Math.round(age / 1000) : null;
