@@ -586,6 +586,47 @@ async function dispatchClear(prev, event) {
 
 // ---------- 진입점 ----------
 
+// 예정 시각이 이 시간 안에 들어오면 20초 간격으로 두 번 더 확인한다.
+// 감시는 1분에 한 번만 도는데, 발효·해제는 우리가 시각을 미리 알고 있으므로
+// 그 순간에만 촘촘히 보면 최대 1분 늦던 것이 20초로 줄어든다.
+// 예정이 없는 대부분의 시간에는 평소대로 한 번만 돈다.
+const NEAR_EVENT_MS = 70 * 1000;
+const FOLLOWUP_MS = 20 * 1000;
+const FOLLOWUP_MAX = 2;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 다음 발효·해제 예정까지 얼마나 남았는지
+function msToNextEvent(pending) {
+  const now = Date.now();
+  const times = (pending || [])
+    .map((p) => p && p.at)
+    .filter((t) => Number.isFinite(t) && t > now);
+  return times.length ? Math.min(...times) - now : Infinity;
+}
+
+// 예정 시각이 지났는데 통보문이 아직 안 바뀐 것들.
+// 갱신될 때까지 촘촘히 지켜보다가, 바뀌는 즉시 알림이 나가게 한다.
+const AWAIT_MAX_MS = 6 * 60 * 1000;
+
+function trackAwaiting(prevAwaiting, pending, warnings) {
+  const now = Date.now();
+  const out = {};
+
+  for (const [label, at] of Object.entries(prevAwaiting || {})) {
+    if (!warnings.includes(label)) continue; // 이미 해제됨
+    if (now - at > AWAIT_MAX_MS) continue; // 너무 오래 기다렸다
+    out[label] = at;
+  }
+
+  for (const p of pending || []) {
+    if (p.kind !== "해제" || !Number.isFinite(p.at)) continue;
+    if (now >= p.at && warnings.includes(p.label)) out[p.label] = p.at;
+  }
+
+  return out;
+}
+
 exports.handler = async function (event) {
   const q = (event && event.queryStringParameters) || {};
 
@@ -598,6 +639,18 @@ exports.handler = async function (event) {
   const log = { at: new Date().toISOString() };
 
   try {
+    return await runCycle(event, log, 0);
+  } catch (e) {
+    return {
+      statusCode: 500,
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e), ...log }),
+    };
+  }
+};
+
+async function runCycle(event, log, round) {
+  {
     // 1) 강우 자료가 묵었으면 새로 수집
     const rs = rainStore(event);
     const read = await readLatest(event);
@@ -619,6 +672,10 @@ exports.handler = async function (event) {
     }
 
     // 2) 특보 확인
+    //
+    // 발효·해제는 기상청 통보문에서 실제로 바뀐 것을 확인한 뒤에만 알린다.
+    // 예정 시각만 보고 미리 보내면 몇십 초 빠르지만, 기상청이 해제를
+    // 취소했을 때 잘못 알리게 된다. 잘못된 알림은 늦은 알림보다 나쁘다.
     const warn = await getWarning(true, 5000, event).catch(() => null);
 
     // 3) 상황 판정
@@ -719,16 +776,27 @@ exports.handler = async function (event) {
       log.log_error = String(e && e.message);
     }
 
+    // 예정 시각이 코앞이거나, 지났는데 통보문이 아직 안 바뀌었으면
+    // 20초 뒤에 한 번 더 본다. 그래야 기상청이 갱신하는 즉시 알림이 나간다.
+    // 예정이 없는 평상시에는 여기서 끝나므로 호출 수가 늘지 않는다.
+    const awaiting = trackAwaiting(prev && prev.awaiting, now.pending, now.warnings);
+    now.awaiting = awaiting;
+    const waitCount = Object.keys(awaiting).length;
+    if (waitCount) log.awaiting = Object.keys(awaiting);
+
+    const wait = msToNextEvent(now.pending);
+    if (round < FOLLOWUP_MAX && (waitCount > 0 || wait <= NEAR_EVENT_MS)) {
+      log.followup =
+        `${round + 1}회차` +
+        (waitCount ? ` · 통보문 갱신 대기 ${waitCount}건` : ` · 다음 예정까지 ${Math.round(wait / 1000)}초`);
+      await sleep(FOLLOWUP_MS);
+      return runCycle(event, log, round + 1);
+    }
+
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
-      body: JSON.stringify({ ok: true, ...log }, null, 2),
-    };
-  } catch (e) {
-    return {
-      statusCode: 500,
-      headers: { "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e), ...log }),
+      body: JSON.stringify({ ok: true, rounds: round + 1, ...log }, null, 2),
     };
   }
-};
+}
