@@ -408,8 +408,6 @@ function finishIntro(armed) {
   // 연출이 끝나면 떼어낸다. 남겨두면 갱신 때마다 카드가 다시 들썩인다.
   if (el) setTimeout(() => el.classList.remove("stage-in"), 2600);
 
-  watchRanking();
-
   document.querySelectorAll(".center-card.elevated").forEach((c) => {
     c.classList.add("stage-glow");
   });
@@ -436,7 +434,13 @@ function watchRanking() {
       // 연출이 끝나면 떼어낸다.
       setTimeout(() => el.classList.remove("reveal-bars"), 2200);
     },
-    { threshold: 0.25 }
+    {
+      // 화면 아래쪽 25%는 아직 안 본 것으로 친다.
+      // 그러지 않으면 앱을 열었을 때 순위표 윗부분이 살짝 걸쳐 있는 것만으로
+      // 연출이 시작돼, 정작 스크롤해서 보면 이미 끝나 있다.
+      rootMargin: "0px 0px -25% 0px",
+      threshold: 0.2,
+    }
   );
   io.observe(el);
 }
@@ -610,6 +614,8 @@ async function load(force) {
     const armed = armIntro();
     paint(data, { cachedView: false });
     finishIntro(armed);
+    // 순위표는 화면에 들어올 때 따로 돈다. 첫 진입 연출과 별개다.
+    watchRanking();
     saveLocal(data);
 
     // 수동 새로고침 또는 오래된 자료로 인해 백그라운드 수집을 요청했다면
