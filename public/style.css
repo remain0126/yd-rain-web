@@ -74,6 +74,7 @@ html, body {
   position: absolute;
   left: 8px;
   top: 0;
+  transform: translateX(-0.3mm);
   height: calc(100% - 15px);
   max-height: 64px;
   width: auto;
