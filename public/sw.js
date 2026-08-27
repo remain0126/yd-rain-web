@@ -1,7 +1,7 @@
 // service worker: 앱 셸(정적 파일)만 캐시. 강우 데이터(/api/rainfall)는
 // 항상 네트워크에서 최신으로 받아온다 (재난 대응 특성상 실시간이 중요).
-const CACHE = "yd-rain-v27";
-const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/manifest.webmanifest"];
+const CACHE = "yd-rain-v28";
+const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/logo.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
