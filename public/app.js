@@ -761,6 +761,20 @@ function urlBase64ToUint8Array(base64) {
   return arr;
 }
 
+const PUSH_DISABLED_KEY = "yd_push_disabled";
+
+function isPushManuallyDisabled() {
+  try { return localStorage.getItem(PUSH_DISABLED_KEY) === "1"; }
+  catch (_) { return false; }
+}
+
+function setPushManuallyDisabled(disabled) {
+  try {
+    if (disabled) localStorage.setItem(PUSH_DISABLED_KEY, "1");
+    else localStorage.removeItem(PUSH_DISABLED_KEY);
+  } catch (_) {}
+}
+
 async function currentSub() {
   const reg = await navigator.serviceWorker.ready;
   return reg.pushManager.getSubscription();
@@ -800,6 +814,7 @@ async function requestAndSubscribe() {
   if (perm === "granted") {
     try {
       await subscribeSilently();
+      setPushManuallyDisabled(false);
       hideBanner();
       note("알림이 <b>켜졌습니다</b>.");
     } catch (e) {
@@ -840,6 +855,13 @@ async function initPush() {
     return;
   }
 
+  if (isPushManuallyDisabled()) {
+    // 사용자가 앱 안에서 직접 알림을 끈 상태는 재실행 후에도 유지한다.
+    // 브라우저 권한이 granted여도 자동 재구독하지 않는다.
+    banner("알림이 <b>꺼져 있습니다</b> — 재난 상황을 받을 수 없습니다.", "지금 켜기", requestAndSubscribe);
+    return;
+  }
+
   if (Notification.permission === "granted") {
     try {
       await subscribeSilently();
@@ -877,6 +899,7 @@ async function unsubscribePush() {
     body: JSON.stringify({ action: "unsubscribe", endpoint: sub.endpoint }),
   }).catch(() => {});
   await sub.unsubscribe().catch(() => {});
+  setPushManuallyDisabled(true);
   return true;
 }
 
