@@ -708,8 +708,15 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 const isStandalone =
   window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 
-function banner(html, btnLabel, onClick) {
+let bannerTimer = null;
+
+// autoHideMs를 주면 그 시간 동안 깜빡인 뒤 흐려지며 사라진다.
+// 사용자가 지금 당장 할 수 있는 일이 없는 안내에만 쓴다.
+// "꺼져 있음"·"차단됨"처럼 조치가 필요한 경고는 그대로 남는다.
+function banner(html, btnLabel, onClick, autoHideMs) {
   if (!pushBanner) return;
+  clearTimeout(bannerTimer);
+  pushBanner.classList.remove("pb-flash", "pb-out");
   pushBanner.hidden = false;
   pushBannerText.innerHTML = html;
   if (btnLabel) {
@@ -720,9 +727,20 @@ function banner(html, btnLabel, onClick) {
     pushBannerBtn.hidden = true;
     pushBannerBtn.onclick = null;
   }
+  if (autoHideMs) {
+    void pushBanner.offsetWidth;
+    pushBanner.classList.add("pb-flash");
+    bannerTimer = setTimeout(() => {
+      pushBanner.classList.remove("pb-flash");
+      pushBanner.classList.add("pb-out");
+      bannerTimer = setTimeout(hideBanner, 400);
+    }, autoHideMs);
+  }
 }
 function hideBanner() {
   if (!pushBanner) return;
+  clearTimeout(bannerTimer);
+  pushBanner.classList.remove("pb-flash", "pb-out");
   pushBanner.hidden = true;
   pushBannerText.innerHTML = "";
   pushBannerBtn.hidden = true;
@@ -809,10 +827,15 @@ async function initPush() {
     if (isIOS && !isStandalone) {
       banner(
         "이 화면에서는 알림을 받을 수 없습니다." +
-          "<small>사파리 아래 공유 버튼 → '홈 화면에 추가' 후, 추가된 아이콘으로 열어 주세요.</small>"
+          "<small>사파리 아래 공유 버튼 → '홈 화면에 추가' 후, 추가된 아이콘으로 열어 주세요.</small>",
+        null, null, 5000
       );
     } else {
-      banner("이 브라우저는 알림을 지원하지 않습니다.<small>크롬 또는 사파리를 사용해 주세요.</small>");
+      banner(
+        "이 브라우저는 알림을 지원하지 않습니다." +
+          "<small>웹앱 설치 후 알림을 설정해 주세요.</small>",
+        null, null, 5000
+      );
     }
     return;
   }
@@ -837,6 +860,88 @@ async function initPush() {
 
   banner("알림이 <b>꺼져 있습니다</b> — 재난 상황을 받을 수 없습니다.", "지금 켜기", requestAndSubscribe);
 }
+
+// ---------- 로고 2초 길게 누르기 = 알림 켜기/끄기 ----------
+//
+// 웹에서는 휴대폰의 알림 설정 자체를 건드릴 수 없다. 브라우저가 막아 두었고
+// 우회 방법은 없다. 여기서 켜고 끄는 것은 "이 앱의 푸시 구독"이다.
+// 끄면 서버가 이 기기로 보내지 않으므로 결과는 같지만, 한 번 "차단"으로
+// 눌러 버린 권한은 휴대폰 설정에서 직접 풀어야 한다.
+
+async function unsubscribePush() {
+  const sub = await currentSub();
+  if (!sub) return false;
+  await fetch("/api/push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "unsubscribe", endpoint: sub.endpoint }),
+  }).catch(() => {});
+  await sub.unsubscribe().catch(() => {});
+  return true;
+}
+
+async function togglePush() {
+  const supported =
+    "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+  if (!supported) {
+    note(
+      isIOS && !isStandalone
+        ? "홈 화면에 추가한 뒤 그 아이콘으로 열어야 알림을 켤 수 있습니다."
+        : "이 브라우저는 알림을 지원하지 않습니다. 웹앱을 설치해 주세요."
+    );
+    return;
+  }
+
+  const sub = await currentSub().catch(() => null);
+  if (sub) {
+    try {
+      await unsubscribePush();
+      note("알림을 <b>껐습니다</b>. 로고를 2초 누르면 다시 켜집니다.");
+      banner("알림이 <b>꺼져 있습니다</b> — 재난 상황을 받을 수 없습니다.", "지금 켜기", requestAndSubscribe);
+    } catch (_) {
+      note("알림을 끄지 못했습니다.");
+    }
+    return;
+  }
+
+  if (Notification.permission === "denied") {
+    note("알림이 <b>차단</b>되어 있습니다. 휴대폰 설정 → 브라우저 → 알림에서 허용해 주세요.");
+    return;
+  }
+  await requestAndSubscribe();
+}
+
+(function bindBrandHold() {
+  const el = document.getElementById("brandBtn");
+  if (!el) return;
+  let timer = null;
+  let long = false;
+
+  const cancel = () => {
+    clearTimeout(timer);
+    timer = null;
+    el.classList.remove("holding");
+  };
+
+  el.addEventListener("pointerdown", () => {
+    long = false;
+    el.classList.add("holding");
+    timer = setTimeout(() => {
+      long = true;
+      el.classList.remove("holding");
+      if (navigator.vibrate) navigator.vibrate(30);
+      togglePush();
+    }, 2000);
+  });
+  ["pointerup", "pointerleave", "pointercancel"].forEach((t) =>
+    el.addEventListener(t, cancel)
+  );
+  el.addEventListener("contextmenu", (e) => e.preventDefault());
+  el.addEventListener("click", (e) => {
+    if (long) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
+})();
 
 // 새로고침 버튼을 길게 누르면 시험 알림을 보낸다 (별도 버튼 없이 점검용)
 (function bindPushTest() {

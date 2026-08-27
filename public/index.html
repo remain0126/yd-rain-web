@@ -19,12 +19,19 @@
   <div class="app">
     <header class="app-bar">
       <div class="app-bar-top">
-        <!-- 왼쪽 빈칸은 오른쪽 새로고침과 같은 폭이다.
-             제목이 화면 정중앙에 오게 하려고 둔다. -->
-        <span class="app-bar-spacer" aria-hidden="true"></span>
+        <!-- 왼쪽 구석 로고. 엠블럼·기관명·영문명이 한 장에 들어 있다.
+             새로고침 단추처럼 자리를 차지하지 않고 얹어 두어,
+             제목은 그대로 화면 정중앙에 남는다. -->
+        <button type="button" class="app-brand" id="brandBtn"
+                aria-label="영덕소방서 · 길게 누르면 알림 켜기/끄기">
+          <img src="/logo.png" alt="" width="62" height="54" decoding="async" />
+        </button>
         <div class="app-bar-main">
           <div class="app-title">영덕군 강우상황 모니터링</div>
           <div class="app-sub" id="dateLabel">불러오는 중…</div>
+          <div class="manager-info">
+            예방안전과 정다호 · <a class="mi-tel" href="tel:054-730-1536">054-730-1536</a>
+          </div>
         </div>
         <button type="button" id="refreshBtn" class="refresh-btn" aria-label="새로고침">
           <span id="refreshIcon">↻</span>
@@ -35,10 +42,6 @@
         <button type="button" class="pb-btn" id="pushBannerBtn" hidden>지금 켜기</button>
       </div>
       <div class="push-note" id="pushNote" hidden></div>
-      <div class="manager-info">
-        예방안전과 정다호 · <a class="mi-tel" href="tel:054-730-1536">054-730-1536</a>
-      </div>
-
       <!-- 상태 띠. 단계가 오르면 이 띠 전체가 그 색으로 물든다. -->
       <div class="status-band" id="statusBand">
         <span class="sb-state" id="rainState">확인 중</span>

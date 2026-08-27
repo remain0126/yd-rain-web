@@ -55,6 +55,7 @@ html, body {
    가운데로 보이지 않는다. 왼쪽에 같은 폭의 빈칸을 둬 균형을 맞춘다.
    글자와 단추 크기는 종전 그대로다. */
 .app-bar-top {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -64,12 +65,50 @@ html, body {
 /* 새로고침은 자리를 차지하지 않고 오른쪽 위에 얹는다.
    자리를 차지하게 두면 제목이 그만큼 좁아져 긴 제목이 단추와 겹친다.
    대신 제목 좌우에 단추 폭만큼 여백을 둬 절대 겹치지 않게 한다. */
-.app-bar-spacer { display: none; }
+/* 왼쪽 구석 로고. 새로고침 단추와 같은 방식으로, 자리를 차지하지 않고
+   얹어 둔다. 자리를 차지하게 두면 가운데 제목이 그만큼 밀린다.
+   엠블럼+기관명+영문명이 한 장으로 묶인 그림, 가로세로비 1.148:1.
+   62×54, 왼쪽 8 → 오른쪽 끝 70. 제목 좌우 여백은 여유를 둬 72px.
+   세로는 새로고침(34~78)의 한가운데 56에 맞춰 29에서 시작한다. */
+.app-brand {
+  position: absolute;
+  left: 8px;
+  top: 0;
+  height: calc(100% - 15px);
+  max-height: 64px;
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  display: block;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.app-brand img { height: 100%; width: auto; display: block; pointer-events: none; }
+
+/* 2초 길게 누르는 동안 아래에 진행 막대가 차오른다 */
+.app-brand::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -5px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  opacity: 0;
+}
+.app-brand.holding::after { opacity: 1; transform: scaleX(1); transition: transform 2s linear; }
+.app-brand.holding img { opacity: 0.6; transition: opacity 0.2s ease; }
 
 .app-bar-main {
   flex: 1;
   min-width: 0;
-  padding: 0 42px;
+  /* 왼쪽 로고(8+62)와 오른쪽 새로고침(10+44) 어느 쪽과도 겹치지 않는 폭 */
+  padding: 0 84px;
   text-align: center;
 }
 
@@ -153,6 +192,14 @@ html, body {
   cursor: pointer;
 }
 .pb-btn:active { transform: scale(0.96); }
+/* 자동으로 사라지는 안내는 깜빡였다가 흐려진다 */
+.push-banner.pb-flash { animation: pbBlink 0.8s ease-in-out infinite; }
+.push-banner.pb-out { opacity: 0; transition: opacity 0.4s ease; }
+@keyframes pbBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
 @keyframes pbPulse {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--critical) 40%, transparent); }
   50% { box-shadow: 0 0 0 6px transparent; }
@@ -172,8 +219,11 @@ html, body {
 
 .refresh-btn {
   position: absolute;
-  top: 34px;
-  right: 10px;
+  /* 로고와 같은 구간(제목 위 ~ 전화번호 아래)의 한가운데.
+     좌우 여백도 로고의 left와 같은 8px로 맞춘다. */
+  top: calc((100% - 15px) / 2);
+  transform: translateY(-50%);
+  right: 8px;
   width: 44px;
   height: 44px;
   /* 둥근 단추. 머릿글의 각진 상자 안에서 유일하게 둥글어 눈에 잡힌다. */
@@ -188,7 +238,7 @@ html, body {
   justify-content: center;
   flex-shrink: 0;
 }
-.refresh-btn:active { background: var(--surface); color: var(--text); transform: scale(0.95); }
+.refresh-btn:active { background: var(--surface); color: var(--text); transform: translateY(-50%) scale(0.95); }
 #refreshIcon.spin { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -482,9 +532,27 @@ details[open] .chev { transform: rotate(180deg); }
 @media (max-width: 480px) {
   .manager-info .mi-row { font-size: 0.7rem; }
   .app-title { font-size: 1.2rem; }
+  .app-bar-main { padding: 0 80px; }
+  .app-brand { max-height: 62px; }
+}
+
+/* 좁아질수록 로고와 제목 여백을 함께 줄인다.
+   제목만 줄이면 로고가 그대로라 좌우가 어긋나 보인다.
+   50px 아래로는 내리지 않는다. 그 아래는 기관명까지 뭉갠다. */
+@media (max-width: 400px) {
+  .app-title { font-size: 1.1rem; }
+  .app-bar-main { padding: 0 78px; }
+  .app-brand { max-height: 60px; }
 }
 @media (max-width: 360px) {
   .app-title { font-size: 1.05rem; }
+  .app-bar-main { padding: 0 74px; }
+  .app-brand { left: 5px; max-height: 58px; }
+}
+@media (max-width: 340px) {
+  .app-title { font-size: 0.94rem; }
+  .app-bar-main { padding: 0 70px; }
+  .app-brand { left: 4px; max-height: 54px; }
 }
 
 .app-foot {
@@ -757,7 +825,8 @@ details[open] .chev { transform: rotate(180deg); }
   .cc-name { font-size: 1.08rem; }
 
   .app-bar { padding: 18px 6px 0; }
-  .refresh-btn { top: 36px; right: 2px; }
+  .refresh-btn { right: 2px; }
+  .app-brand { left: 2px; }
   .status-band { margin: 0 -6px; padding: 12px 20px; }
 }
 
