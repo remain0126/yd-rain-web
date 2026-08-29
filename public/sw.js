@@ -1,7 +1,7 @@
 // service worker: 앱 셸(정적 파일)만 캐시. 강우 데이터(/api/rainfall)는
 // 항상 네트워크에서 최신으로 받아온다 (재난 대응 특성상 실시간이 중요).
-const CACHE = "yd-rain-v31";
-const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/manifest.webmanifest"];
+const CACHE = "yd-rain-v33";
+const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/logo.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -70,7 +70,7 @@ self.addEventListener("push", (e) => {
       ? [700, 150, 700, 150, 700, 150, 700, 150, 700, 150, 700, 150, 700]
       : [500, 200, 500, 200, 500, 200, 500],
     actions: d.key ? [{ action: "ack", title: "확인" }] : [],
-    data: { url: d.url || "/", key: d.key || null, rank: d.rank, eid: d.eid || null, group },
+    data: { url: d.url || "/", key: d.key || null, rank: d.rank, group },
   };
 
   e.waitUntil(
@@ -107,39 +107,12 @@ self.addEventListener("notificationclick", (e) => {
             endpoint: sub.endpoint,
             key: data.key,
             rank: data.rank,
-            // 어느 알림에 대한 확인인지 알려준다
-            eid: data.eid,
           }),
         });
       })
       .catch(() => {});
 
-  // 알림을 밀어서 지운 경우도 확인으로 친다.
-// 내용을 보고 넘긴 것이므로 읽은 것으로 본다.
-self.addEventListener("notificationclose", (e) => {
-  const data = (e.notification && e.notification.data) || {};
-  e.waitUntil(
-    self.registration.pushManager
-      .getSubscription()
-      .then((sub) => {
-        if (!sub) return;
-        return fetch("/api/push", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "ack",
-            endpoint: sub.endpoint,
-            key: data.key,
-            rank: data.rank,
-            eid: data.eid,
-          }),
-        });
-      })
-      .catch(() => {})
-  );
-});
-
-// 확인 버튼: 앱은 열지 않는다
+  // 확인 버튼: 앱은 열지 않는다
   if (e.action === "ack") {
     e.waitUntil(sendAck());
     return;

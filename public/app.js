@@ -192,10 +192,17 @@ function renderCenters(rows) {
 // 바꿔버린다. 짧은 막대는 그대로 두고 긴 막대만 눌려서, 같은 색인데
 // 길이에 따라 달라 보였다. 그림은 그 대상이 아니라 색이 그대로 나온다.
 function bar(pct, color) {
+  // 막대를 "면"이 아니라 "선"으로 그린다.
+  //
+  // 일부 브라우저의 웹페이지 어둡게 하기 기능은 넓은 색면을 배경으로 보고
+  // 어둡게 바꾼다. 채워진 사각형은 길수록 눌려서, 같은 색인데 1~6위는 어둡고
+  // 7~9위만 밝게 나왔다. 아래 시간대별 그래프의 파란 선은 아무리 길어도
+  // 밝은데, 그것이 선이기 때문이다. 막대도 같은 방식으로 그린다.
   const w = Math.max(2, Math.min(100, Number(pct) || 0));
   return (
     `<svg class="rk-svg" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true">` +
-    `<rect x="0" y="0" width="${w}" height="8" rx="4" fill="${color}"/>` +
+    `<line x1="0.6" y1="4" x2="${w.toFixed(2)}" y2="4" stroke="${color}" ` +
+    `stroke-width="8" stroke-linecap="round" vector-effect="non-scaling-stroke"/>` +
     `</svg>`
   );
 }
@@ -303,85 +310,6 @@ function sparkline(hourValues, nowIdx, spW) {
 }
 
 // ---------- Detail list ----------
-
-// 그래프 점을 누르면 그 시각의 강우량을 보여준다.
-//
-// 손가락에는 마우스 올리기가 없어 기존 툴팁이 안 뜬다.
-// 점 주변 넓은 원을 눌러도 잡히게 하고, 잠시 뒤 저절로 사라지게 한다.
-let tipEl = null;
-let tipTimer = null;
-
-function showSparkTip(target, name) {
-  const h = target.getAttribute("data-h");
-  const v = target.getAttribute("data-v");
-  if (h == null) return;
-
-  hideSparkTip();
-  const box = target.getBoundingClientRect();
-
-  tipEl = document.createElement("div");
-  tipEl.className = "spark-tip";
-  tipEl.innerHTML = `${name ? name + " " : ""}${h}시 <b>${v}mm</b>`;
-  document.body.appendChild(tipEl);
-
-  const x = Math.min(Math.max(box.left + box.width / 2, 60), window.innerWidth - 60);
-  tipEl.style.left = x + "px";
-  tipEl.style.top = box.top - 6 + "px";
-
-  clearTimeout(tipTimer);
-  tipTimer = setTimeout(hideSparkTip, 2200);
-}
-
-function hideSparkTip() {
-  if (tipEl) {
-    tipEl.remove();
-    tipEl = null;
-  }
-}
-
-document.addEventListener("click", (e) => {
-  const hit = e.target.closest ? e.target.closest(".dt-hit") : null;
-  if (!hit) {
-    hideSparkTip();
-    return;
-  }
-  const item = hit.closest(".dt-item");
-  const nameEl = item && item.querySelector(".dt-name");
-  showSparkTip(hit, nameEl ? nameEl.textContent.trim() : "");
-});
-
-window.addEventListener("scroll", hideSparkTip, { passive: true });
-
-// 시간대별 그래프는 화면을 한참 내려야 나온다.
-// 눈에 들어온 순간 위에서 아래로 한 지점씩 그려지게 한다. 한 번만 돈다.
-let chartsShown = false;
-
-function watchCharts() {
-  const el = $("detailList");
-  if (!el || chartsShown || typeof IntersectionObserver !== "function") return;
-
-  const io = new IntersectionObserver(
-    (entries) => {
-      if (!entries.some((e) => e.isIntersecting)) return;
-      chartsShown = true;
-      io.disconnect();
-
-      // 선 길이를 재서 그 길이만큼 그어지게 한다
-      el.querySelectorAll(".dt-spark polyline").forEach((ln) => {
-        try {
-          const len = Math.ceil(ln.getTotalLength());
-          ln.style.setProperty("--len", len);
-        } catch (_) {}
-      });
-
-      el.classList.add("draw-charts");
-      // 남겨두면 1분마다 다시 그려질 때 또 돈다
-      setTimeout(() => el.classList.remove("draw-charts"), 2600);
-    },
-    { rootMargin: "0px 0px -20% 0px", threshold: 0.05 }
-  );
-  io.observe(el);
-}
 
 // 창 크기가 바뀌면 칸 너비를 다시 계산해 그린다
 let lastDetail = null;
@@ -524,6 +452,82 @@ function finishIntro(armed) {
 // 읍면 순위는 화면을 내려야 보인다. 첫 진입에 같이 돌려버리면
 // 아무도 못 보는 사이에 끝나므로, 눈에 들어온 순간에 한 번만 돌린다.
 let barsShown = false;
+
+// 그래프 점을 누르면 그 시각의 강우량을 보여준다.
+//
+// 손가락에는 마우스 올리기가 없어 기존 툴팁이 안 뜬다.
+// 점 주변 넓은 원을 눌러도 잡히게 하고, 잠시 뒤 저절로 사라지게 한다.
+let tipEl = null;
+let tipTimer = null;
+
+function showSparkTip(target, name) {
+  const h = target.getAttribute("data-h");
+  const v = target.getAttribute("data-v");
+  if (h == null) return;
+
+  hideSparkTip();
+  const box = target.getBoundingClientRect();
+
+  tipEl = document.createElement("div");
+  tipEl.className = "spark-tip";
+  tipEl.innerHTML = `${name ? name + " " : ""}${h}시 <b>${v}mm</b>`;
+  document.body.appendChild(tipEl);
+
+  const x = Math.min(Math.max(box.left + box.width / 2, 60), window.innerWidth - 60);
+  tipEl.style.left = x + "px";
+  tipEl.style.top = box.top - 6 + "px";
+
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(hideSparkTip, 2200);
+}
+
+function hideSparkTip() {
+  if (tipEl) {
+    tipEl.remove();
+    tipEl = null;
+  }
+}
+
+document.addEventListener("click", (e) => {
+  const hit = e.target.closest ? e.target.closest(".dt-hit") : null;
+  if (!hit) {
+    hideSparkTip();
+    return;
+  }
+  const item = hit.closest(".dt-item");
+  const nameEl = item && item.querySelector(".dt-name");
+  showSparkTip(hit, nameEl ? nameEl.textContent.trim() : "");
+});
+
+window.addEventListener("scroll", hideSparkTip, { passive: true });
+
+// 시간대별 그래프는 화면을 한참 내려야 나온다.
+// 눈에 들어온 순간 위에서 아래로 한 지점씩 그려지게 한다. 한 번만 돈다.
+let chartsShown = false;
+
+function watchCharts() {
+  const el = $("detailList");
+  if (!el || chartsShown || typeof IntersectionObserver !== "function") return;
+
+  const io = new IntersectionObserver(
+    (entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      chartsShown = true;
+      io.disconnect();
+
+      el.querySelectorAll(".dt-spark polyline").forEach((ln) => {
+        try {
+          ln.style.setProperty("--len", Math.ceil(ln.getTotalLength()));
+        } catch (_) {}
+      });
+
+      el.classList.add("draw-charts");
+      setTimeout(() => el.classList.remove("draw-charts"), 2600);
+    },
+    { rootMargin: "0px 0px -20% 0px", threshold: 0.05 }
+  );
+  io.observe(el);
+}
 
 function watchRanking() {
   const el = $("ranking");
@@ -777,6 +781,21 @@ load();
 // (불필요한 호출을 줄이면서, 복귀 시점에는 최신 상태를 바로 보여주기 위함)
 let refreshTimer = setInterval(load, REFRESH_MS);
 
+// 앱을 열면 최근에 온 알림을 확인 처리한다.
+// 어느 알림인지는 서버가 최근 발송 기록으로 판단한다.
+async function ackOnOpen() {
+  try {
+    const reg = await navigator.serviceWorker?.ready;
+    const sub = await reg?.pushManager?.getSubscription();
+    if (!sub) return;
+    await fetch("/api/push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "ack_open", endpoint: sub.endpoint }),
+    });
+  } catch (_) {}
+}
+
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     clearInterval(refreshTimer);
@@ -785,7 +804,6 @@ document.addEventListener("visibilitychange", () => {
     // 화면으로 돌아온 즉시 확인 처리한다. 자료 갱신을 기다리면
     // 그 사이 발송이 한 번 더 나갈 수 있다.
     if (typeof ackCurrent === "function" && curRank != null) ackCurrent(curRank);
-    ackOnOpen();
     load();
     refreshTimer = setInterval(load, REFRESH_MS);
   }
@@ -794,9 +812,9 @@ document.addEventListener("visibilitychange", () => {
 // PWA service worker 등록
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
-    // 등록이 끝난 뒤 최근 알림을 확인 처리한다
+    // 알림을 지우고 앱을 연 경우에도 "봤다"로 세도록 서버에 알린다
     setTimeout(ackOnOpen, 1200);
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
   });
 }
 
@@ -817,8 +835,15 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 const isStandalone =
   window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 
-function banner(html, btnLabel, onClick) {
+let bannerTimer = null;
+
+// autoHideMs를 주면 그 시간 동안 깜빡인 뒤 흐려지며 사라진다.
+// 사용자가 지금 당장 할 수 있는 일이 없는 안내에만 쓴다.
+// "꺼져 있음"·"차단됨"처럼 조치가 필요한 경고는 그대로 남는다.
+function banner(html, btnLabel, onClick, autoHideMs) {
   if (!pushBanner) return;
+  clearTimeout(bannerTimer);
+  pushBanner.classList.remove("pb-flash", "pb-out");
   pushBanner.hidden = false;
   pushBannerText.innerHTML = html;
   if (btnLabel) {
@@ -829,9 +854,20 @@ function banner(html, btnLabel, onClick) {
     pushBannerBtn.hidden = true;
     pushBannerBtn.onclick = null;
   }
+  if (autoHideMs) {
+    void pushBanner.offsetWidth;
+    pushBanner.classList.add("pb-flash");
+    bannerTimer = setTimeout(() => {
+      pushBanner.classList.remove("pb-flash");
+      pushBanner.classList.add("pb-out");
+      bannerTimer = setTimeout(hideBanner, 400);
+    }, autoHideMs);
+  }
 }
 function hideBanner() {
   if (!pushBanner) return;
+  clearTimeout(bannerTimer);
+  pushBanner.classList.remove("pb-flash", "pb-out");
   pushBanner.hidden = true;
   pushBannerText.innerHTML = "";
   pushBannerBtn.hidden = true;
@@ -918,10 +954,15 @@ async function initPush() {
     if (isIOS && !isStandalone) {
       banner(
         "이 화면에서는 알림을 받을 수 없습니다." +
-          "<small>사파리 아래 공유 버튼 → '홈 화면에 추가' 후, 추가된 아이콘으로 열어 주세요.</small>"
+          "<small>사파리 아래 공유 버튼 → '홈 화면에 추가' 후, 추가된 아이콘으로 열어 주세요.</small>",
+        null, null, 5000
       );
     } else {
-      banner("이 브라우저는 알림을 지원하지 않습니다.<small>크롬 또는 사파리를 사용해 주세요.</small>");
+      banner(
+        "이 브라우저는 알림을 지원하지 않습니다." +
+          "<small>웹앱 설치 후 알림을 설정해 주세요.</small>",
+        null, null, 5000
+      );
     }
     return;
   }
@@ -946,6 +987,88 @@ async function initPush() {
 
   banner("알림이 <b>꺼져 있습니다</b> — 재난 상황을 받을 수 없습니다.", "지금 켜기", requestAndSubscribe);
 }
+
+// ---------- 로고 2초 길게 누르기 = 알림 켜기/끄기 ----------
+//
+// 웹에서는 휴대폰의 알림 설정 자체를 건드릴 수 없다. 브라우저가 막아 두었고
+// 우회 방법은 없다. 여기서 켜고 끄는 것은 "이 앱의 푸시 구독"이다.
+// 끄면 서버가 이 기기로 보내지 않으므로 결과는 같지만, 한 번 "차단"으로
+// 눌러 버린 권한은 휴대폰 설정에서 직접 풀어야 한다.
+
+async function unsubscribePush() {
+  const sub = await currentSub();
+  if (!sub) return false;
+  await fetch("/api/push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "unsubscribe", endpoint: sub.endpoint }),
+  }).catch(() => {});
+  await sub.unsubscribe().catch(() => {});
+  return true;
+}
+
+async function togglePush() {
+  const supported =
+    "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+  if (!supported) {
+    note(
+      isIOS && !isStandalone
+        ? "홈 화면에 추가한 뒤 그 아이콘으로 열어야 알림을 켤 수 있습니다."
+        : "이 브라우저는 알림을 지원하지 않습니다. 웹앱을 설치해 주세요."
+    );
+    return;
+  }
+
+  const sub = await currentSub().catch(() => null);
+  if (sub) {
+    try {
+      await unsubscribePush();
+      note("알림을 <b>껐습니다</b>. 로고를 2초 누르면 다시 켜집니다.");
+      banner("알림이 <b>꺼져 있습니다</b> — 재난 상황을 받을 수 없습니다.", "지금 켜기", requestAndSubscribe);
+    } catch (_) {
+      note("알림을 끄지 못했습니다.");
+    }
+    return;
+  }
+
+  if (Notification.permission === "denied") {
+    note("알림이 <b>차단</b>되어 있습니다. 휴대폰 설정 → 브라우저 → 알림에서 허용해 주세요.");
+    return;
+  }
+  await requestAndSubscribe();
+}
+
+(function bindBrandHold() {
+  const el = document.getElementById("brandBtn");
+  if (!el) return;
+  let timer = null;
+  let long = false;
+
+  const cancel = () => {
+    clearTimeout(timer);
+    timer = null;
+    el.classList.remove("holding");
+  };
+
+  el.addEventListener("pointerdown", () => {
+    long = false;
+    el.classList.add("holding");
+    timer = setTimeout(() => {
+      long = true;
+      el.classList.remove("holding");
+      if (navigator.vibrate) navigator.vibrate(30);
+      togglePush();
+    }, 2000);
+  });
+  ["pointerup", "pointerleave", "pointercancel"].forEach((t) =>
+    el.addEventListener(t, cancel)
+  );
+  el.addEventListener("contextmenu", (e) => e.preventDefault());
+  el.addEventListener("click", (e) => {
+    if (long) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
+})();
 
 // 새로고침 버튼을 길게 누르면 시험 알림을 보낸다 (별도 버튼 없이 점검용)
 (function bindPushTest() {
@@ -1155,24 +1278,6 @@ async function postAck(rank) {
   if (!res.ok) throw new Error(res.error || "확인 실패");
   lastAckRank = rank;
   return res;
-}
-
-// 앱을 열면 최근에 온 알림을 확인 처리한다.
-//
-// 알림을 눌러 들어오면 서비스워커가 처리하지만, 알림을 지우고 홈에서
-// 앱을 여는 경우가 더 많다. 그때도 "봤다"로 세려면 앱이 알려야 한다.
-// 어느 알림인지는 서버가 최근 발송 기록으로 판단한다.
-async function ackOnOpen() {
-  try {
-    const reg = await navigator.serviceWorker?.ready;
-    const sub = await reg?.pushManager?.getSubscription();
-    if (!sub) return;
-    await fetch("/api/push", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "ack_open", endpoint: sub.endpoint }),
-    });
-  } catch (_) {}
 }
 
 // 화면을 보고 있으면 자동으로 확인 처리 (단계가 더 나빠지면 서버가 무효화한다)
