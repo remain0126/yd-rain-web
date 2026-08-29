@@ -88,7 +88,7 @@ html, body {
    바깥 여백이 좌우 같아진다. */
 .app-brand {
   position: absolute;
-  top: 12px;
+  top: 8px;
   left: 4px;
   width: 66px;
   height: 78px;
@@ -120,7 +120,7 @@ html, body {
 @media (max-width: 359px) {
   .app-title { font-size: 1.08rem; }
   .app-brand { width: 54px; height: 68px; }
-  .refresh-btn { top: 24px; right: 9px; }
+  .refresh-btn { top: 20px; right: 9px; }
   .app-bar-main { padding: 0 60px; }
 }
 
@@ -211,8 +211,8 @@ html, body {
 
 .refresh-btn {
   position: absolute;
-  /* 로고 자리(높이 78px, 위 12px)의 한가운데에 맞춘다 */
-  top: 29px;
+  /* 로고 자리(높이 78px, 위 8px)의 한가운데에 맞춘다 */
+  top: 25px;
   /* 로고와 같은 66px 자리의 가운데 = 4 + (66 - 44) / 2 */
   right: 15px;
   width: 44px;
@@ -402,12 +402,17 @@ html, body {
   border-radius: 999px;
   overflow: hidden;
 }
+/* 강우량 막대.
+   단계 색(초록·노랑·주황)은 위험도를, 이 파랑은 강우량의 많고 적음을 뜻한다.
+   아래 시간대별 그래프의 범례와 같은 계열이라 눈이 헷갈리지 않는다.
+   어두운 바탕에서 묻히지 않도록 밝기를 올린다. */
 .rk-fill {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent), #0ea5e9);
-  min-width: 3px;
+  background: linear-gradient(90deg, #38bdf8, #0ea5e9);
+  box-shadow: 0 0 8px -2px #38bdf8aa;
+  min-width: 4px;
 }
 .rk-val {
   width: 52px;
@@ -799,8 +804,8 @@ details[open] .chev { transform: rotate(180deg); }
   .cc-name { font-size: 1.08rem; }
 
   .app-bar { padding: 18px 6px 0; }
-  .app-brand { top: 16px; left: 6px; width: 78px; height: 88px; }
-  .refresh-btn { top: 38px; right: 23px; }
+  .app-brand { top: 12px; left: 6px; width: 78px; height: 88px; }
+  .refresh-btn { top: 34px; right: 23px; }
   .app-bar-main { padding: 0 90px; }
   .status-band { margin: 0 -6px; padding: 12px 20px; }
 }
@@ -831,8 +836,11 @@ details[open] .chev { transform: rotate(180deg); }
   padding: 11px 14px;
   border-radius: 10px;
   font-size: 0.72rem;
-  color: var(--muted);
-  background: color-mix(in srgb, var(--band-color, var(--normal)) 7%, transparent);
+  color: #a9b6c6;
+  /* 7%로는 어두운 바탕에서 상자가 있는지조차 알기 어려웠다.
+     색을 진하게 하고 테두리를 둘러 경계를 분명히 한다. */
+  background: color-mix(in srgb, var(--band-color, var(--normal)) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--band-color, var(--normal)) 32%, transparent);
   font-variant-numeric: tabular-nums;
 }
 

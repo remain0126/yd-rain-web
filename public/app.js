@@ -215,7 +215,12 @@ function renderRanking(rows) {
       const badge = zone
         ? `<span class="rk-zone" style="background:${it.riskColor}22;color:${it.riskColor};border-color:${it.riskColor}66;">${zone}</span>`
         : "";
-      const fillColor = it.riskKey !== "normal" ? `background:${it.riskColor};` : "";
+      // 단계가 오른 곳은 그 단계 색, 평상시는 강우량을 뜻하는 파랑.
+      // 코드에서 직접 지정해 어떤 화면에서도 같은 색으로 보이게 한다.
+      const fillColor =
+        it.riskKey !== "normal"
+          ? `background:${it.riskColor};box-shadow:0 0 8px -2px ${it.riskColor}aa;`
+          : "background:linear-gradient(90deg,#38bdf8,#0ea5e9);";
       return `
         <div class="rk-row">
           <span class="rk-num" style="color:${rankColor};">${idx + 1}</span>
