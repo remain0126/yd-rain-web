@@ -274,14 +274,99 @@ function sparkline(hourValues, nowIdx, spW) {
   const x = (i) => i * SP_W + SP_W / 2;
   const line = known.map((k) => `${x(k.i)},${y(k.v).toFixed(1)}`).join(" ");
   const area = `${x(known[0].i)},${SP_H - SP_PAD} ${line} ${x(known[known.length - 1].i)},${SP_H - SP_PAD}`;
+  // 점 하나마다 보이는 원과 누를 원을 함께 둔다.
+  // 보이는 원은 2.2px이라 손가락으로 정확히 누르기 어렵다.
   const dots = known
-    .map((k) => `<circle cx="${x(k.i)}" cy="${y(k.v).toFixed(1)}" r="2.2" fill="${heatColor(k.v)}" stroke="#0a0f16" stroke-width="0.8"><title>${k.i + 1}시: ${k.v}mm</title></circle>`)
+    .map(
+      (k) =>
+        `<circle class="dt-dot" cx="${x(k.i)}" cy="${y(k.v).toFixed(1)}" r="2.2" fill="${heatColor(k.v)}" stroke="#0a0f16" stroke-width="0.8"><title>${k.i + 1}시: ${k.v}mm</title></circle>` +
+        `<circle class="dt-hit" cx="${x(k.i)}" cy="${y(k.v).toFixed(1)}" r="9" data-h="${k.i + 1}" data-v="${k.v}"></circle>`
+    )
     .join("");
 
   return `<svg width="${width}" height="${totalH}" viewBox="0 0 ${width} ${totalH}">${grid}${base}<polygon points="${area}" fill="#38bdf8" opacity="0.14"/><polyline points="${line}" fill="none" stroke="#38bdf8" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>${dots}${axis}${nowMarker(SP_H)}</svg>`;
 }
 
 // ---------- Detail list ----------
+
+// 그래프 점을 누르면 그 시각의 강우량을 보여준다.
+//
+// 손가락에는 마우스 올리기가 없어 기존 툴팁이 안 뜬다.
+// 점 주변 넓은 원을 눌러도 잡히게 하고, 잠시 뒤 저절로 사라지게 한다.
+let tipEl = null;
+let tipTimer = null;
+
+function showSparkTip(target, name) {
+  const h = target.getAttribute("data-h");
+  const v = target.getAttribute("data-v");
+  if (h == null) return;
+
+  hideSparkTip();
+  const box = target.getBoundingClientRect();
+
+  tipEl = document.createElement("div");
+  tipEl.className = "spark-tip";
+  tipEl.innerHTML = `${name ? name + " " : ""}${h}시 <b>${v}mm</b>`;
+  document.body.appendChild(tipEl);
+
+  const x = Math.min(Math.max(box.left + box.width / 2, 60), window.innerWidth - 60);
+  tipEl.style.left = x + "px";
+  tipEl.style.top = box.top - 6 + "px";
+
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(hideSparkTip, 2200);
+}
+
+function hideSparkTip() {
+  if (tipEl) {
+    tipEl.remove();
+    tipEl = null;
+  }
+}
+
+document.addEventListener("click", (e) => {
+  const hit = e.target.closest ? e.target.closest(".dt-hit") : null;
+  if (!hit) {
+    hideSparkTip();
+    return;
+  }
+  const item = hit.closest(".dt-item");
+  const nameEl = item && item.querySelector(".dt-name");
+  showSparkTip(hit, nameEl ? nameEl.textContent.trim() : "");
+});
+
+window.addEventListener("scroll", hideSparkTip, { passive: true });
+
+// 시간대별 그래프는 화면을 한참 내려야 나온다.
+// 눈에 들어온 순간 위에서 아래로 한 지점씩 그려지게 한다. 한 번만 돈다.
+let chartsShown = false;
+
+function watchCharts() {
+  const el = $("detailList");
+  if (!el || chartsShown || typeof IntersectionObserver !== "function") return;
+
+  const io = new IntersectionObserver(
+    (entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      chartsShown = true;
+      io.disconnect();
+
+      // 선 길이를 재서 그 길이만큼 그어지게 한다
+      el.querySelectorAll(".dt-spark polyline").forEach((ln) => {
+        try {
+          const len = Math.ceil(ln.getTotalLength());
+          ln.style.setProperty("--len", len);
+        } catch (_) {}
+      });
+
+      el.classList.add("draw-charts");
+      // 남겨두면 1분마다 다시 그려질 때 또 돈다
+      setTimeout(() => el.classList.remove("draw-charts"), 2600);
+    },
+    { rootMargin: "0px 0px -20% 0px", threshold: 0.05 }
+  );
+  io.observe(el);
+}
 
 // 창 크기가 바뀌면 칸 너비를 다시 계산해 그린다
 let lastDetail = null;
@@ -297,10 +382,15 @@ function renderDetail(rows, columns) {
   const hourCols = columns.filter((c) => /^\d{2}시$/.test(c));
 
   // 그릴 수 있는 폭을 재서 칸 너비를 정한다.
-  // PC에서는 한 칸이 넓어져 그래프가 화면을 가득 채운다.
-  const avail = Math.max(0, (el.clientWidth || 0) - 20);
+  //
+  // 화면이 아직 그려지기 전이면 폭이 0으로 나온다. 그대로 최소값을 쓰면
+  // 그래프가 화면보다 넓어져 오른쪽(20시 이후)이 잘린다.
+  // 그래서 못 재면 창 폭으로 대신 계산한다.
+  const measured = el.getBoundingClientRect().width || el.clientWidth || 0;
+  const fallback = Math.min(window.innerWidth || 360, 1200) - 16;
+  const avail = Math.max(240, (measured || fallback) - 8);
   const cols = hourCols.length || 24;
-  const spW = Math.max(SP_W_MIN, Math.min(SP_W_MAX, Math.floor(avail / cols)));
+  const spW = Math.max(10, Math.min(SP_W_MAX, Math.floor(avail / cols)));
 
   const allNames = Object.keys(rows);
   let lastIdx = -1;
@@ -495,6 +585,7 @@ function paint(data, opts) {
   } catch (_) {}
   renderRanking(rows);
   renderDetail(rows, columns);
+  watchCharts();
 
   // 군청 자료의 날짜에 요일을 붙여 보여준다.
   // 자정을 넘겨도 자료의 날짜를 따라가므로 화면과 숫자가 어긋나지 않는다.
@@ -679,6 +770,7 @@ document.addEventListener("visibilitychange", () => {
     // 화면으로 돌아온 즉시 확인 처리한다. 자료 갱신을 기다리면
     // 그 사이 발송이 한 번 더 나갈 수 있다.
     if (typeof ackCurrent === "function" && curRank != null) ackCurrent(curRank);
+    ackOnOpen();
     load();
     refreshTimer = setInterval(load, REFRESH_MS);
   }
@@ -688,6 +780,8 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
+    // 등록이 끝난 뒤 최근 알림을 확인 처리한다
+    setTimeout(ackOnOpen, 1200);
   });
 }
 
@@ -708,15 +802,8 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 const isStandalone =
   window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 
-let bannerTimer = null;
-
-// autoHideMs를 주면 그 시간 동안 깜빡인 뒤 흐려지며 사라진다.
-// 사용자가 지금 당장 할 수 있는 일이 없는 안내에만 쓴다.
-// "꺼져 있음"·"차단됨"처럼 조치가 필요한 경고는 그대로 남는다.
-function banner(html, btnLabel, onClick, autoHideMs) {
+function banner(html, btnLabel, onClick) {
   if (!pushBanner) return;
-  clearTimeout(bannerTimer);
-  pushBanner.classList.remove("pb-flash", "pb-out");
   pushBanner.hidden = false;
   pushBannerText.innerHTML = html;
   if (btnLabel) {
@@ -727,20 +814,9 @@ function banner(html, btnLabel, onClick, autoHideMs) {
     pushBannerBtn.hidden = true;
     pushBannerBtn.onclick = null;
   }
-  if (autoHideMs) {
-    void pushBanner.offsetWidth;
-    pushBanner.classList.add("pb-flash");
-    bannerTimer = setTimeout(() => {
-      pushBanner.classList.remove("pb-flash");
-      pushBanner.classList.add("pb-out");
-      bannerTimer = setTimeout(hideBanner, 400);
-    }, autoHideMs);
-  }
 }
 function hideBanner() {
   if (!pushBanner) return;
-  clearTimeout(bannerTimer);
-  pushBanner.classList.remove("pb-flash", "pb-out");
   pushBanner.hidden = true;
   pushBannerText.innerHTML = "";
   pushBannerBtn.hidden = true;
@@ -759,20 +835,6 @@ function urlBase64ToUint8Array(base64) {
   const arr = new Uint8Array(raw.length);
   for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
   return arr;
-}
-
-const PUSH_DISABLED_KEY = "yd_push_disabled";
-
-function isPushManuallyDisabled() {
-  try { return localStorage.getItem(PUSH_DISABLED_KEY) === "1"; }
-  catch (_) { return false; }
-}
-
-function setPushManuallyDisabled(disabled) {
-  try {
-    if (disabled) localStorage.setItem(PUSH_DISABLED_KEY, "1");
-    else localStorage.removeItem(PUSH_DISABLED_KEY);
-  } catch (_) {}
 }
 
 async function currentSub() {
@@ -814,7 +876,6 @@ async function requestAndSubscribe() {
   if (perm === "granted") {
     try {
       await subscribeSilently();
-      setPushManuallyDisabled(false);
       hideBanner();
       note("알림이 <b>켜졌습니다</b>.");
     } catch (e) {
@@ -842,23 +903,11 @@ async function initPush() {
     if (isIOS && !isStandalone) {
       banner(
         "이 화면에서는 알림을 받을 수 없습니다." +
-          "<small>사파리 아래 공유 버튼 → '홈 화면에 추가' 후, 추가된 아이콘으로 열어 주세요.</small>",
-        null, null, 5000
+          "<small>사파리 아래 공유 버튼 → '홈 화면에 추가' 후, 추가된 아이콘으로 열어 주세요.</small>"
       );
     } else {
-      banner(
-        "이 브라우저는 알림을 지원하지 않습니다." +
-          "<small>웹앱 설치 후 알림을 설정해 주세요.</small>",
-        null, null, 5000
-      );
+      banner("이 브라우저는 알림을 지원하지 않습니다.<small>크롬 또는 사파리를 사용해 주세요.</small>");
     }
-    return;
-  }
-
-  if (isPushManuallyDisabled()) {
-    // 사용자가 앱 안에서 직접 알림을 끈 상태는 재실행 후에도 유지한다.
-    // 브라우저 권한이 granted여도 자동 재구독하지 않는다.
-    banner("알림이 <b>꺼져 있습니다</b> — 재난 상황을 받을 수 없습니다.", "지금 켜기", requestAndSubscribe);
     return;
   }
 
@@ -882,89 +931,6 @@ async function initPush() {
 
   banner("알림이 <b>꺼져 있습니다</b> — 재난 상황을 받을 수 없습니다.", "지금 켜기", requestAndSubscribe);
 }
-
-// ---------- 로고 2초 길게 누르기 = 알림 켜기/끄기 ----------
-//
-// 웹에서는 휴대폰의 알림 설정 자체를 건드릴 수 없다. 브라우저가 막아 두었고
-// 우회 방법은 없다. 여기서 켜고 끄는 것은 "이 앱의 푸시 구독"이다.
-// 끄면 서버가 이 기기로 보내지 않으므로 결과는 같지만, 한 번 "차단"으로
-// 눌러 버린 권한은 휴대폰 설정에서 직접 풀어야 한다.
-
-async function unsubscribePush() {
-  const sub = await currentSub();
-  if (!sub) return false;
-  await fetch("/api/push", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "unsubscribe", endpoint: sub.endpoint }),
-  }).catch(() => {});
-  await sub.unsubscribe().catch(() => {});
-  setPushManuallyDisabled(true);
-  return true;
-}
-
-async function togglePush() {
-  const supported =
-    "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
-
-  if (!supported) {
-    note(
-      isIOS && !isStandalone
-        ? "홈 화면에 추가한 뒤 그 아이콘으로 열어야 알림을 켤 수 있습니다."
-        : "이 브라우저는 알림을 지원하지 않습니다. 웹앱을 설치해 주세요."
-    );
-    return;
-  }
-
-  const sub = await currentSub().catch(() => null);
-  if (sub) {
-    try {
-      await unsubscribePush();
-      note("알림을 <b>껐습니다</b>. 로고를 2초 누르면 다시 켜집니다.");
-      banner("알림이 <b>꺼져 있습니다</b> — 재난 상황을 받을 수 없습니다.", "지금 켜기", requestAndSubscribe);
-    } catch (_) {
-      note("알림을 끄지 못했습니다.");
-    }
-    return;
-  }
-
-  if (Notification.permission === "denied") {
-    note("알림이 <b>차단</b>되어 있습니다. 휴대폰 설정 → 브라우저 → 알림에서 허용해 주세요.");
-    return;
-  }
-  await requestAndSubscribe();
-}
-
-(function bindBrandHold() {
-  const el = document.getElementById("brandBtn");
-  if (!el) return;
-  let timer = null;
-  let long = false;
-
-  const cancel = () => {
-    clearTimeout(timer);
-    timer = null;
-    el.classList.remove("holding");
-  };
-
-  el.addEventListener("pointerdown", () => {
-    long = false;
-    el.classList.add("holding");
-    timer = setTimeout(() => {
-      long = true;
-      el.classList.remove("holding");
-      if (navigator.vibrate) navigator.vibrate(30);
-      togglePush();
-    }, 2000);
-  });
-  ["pointerup", "pointerleave", "pointercancel"].forEach((t) =>
-    el.addEventListener(t, cancel)
-  );
-  el.addEventListener("contextmenu", (e) => e.preventDefault());
-  el.addEventListener("click", (e) => {
-    if (long) { e.preventDefault(); e.stopPropagation(); }
-  }, true);
-})();
 
 // 새로고침 버튼을 길게 누르면 시험 알림을 보낸다 (별도 버튼 없이 점검용)
 (function bindPushTest() {
@@ -1174,6 +1140,24 @@ async function postAck(rank) {
   if (!res.ok) throw new Error(res.error || "확인 실패");
   lastAckRank = rank;
   return res;
+}
+
+// 앱을 열면 최근에 온 알림을 확인 처리한다.
+//
+// 알림을 눌러 들어오면 서비스워커가 처리하지만, 알림을 지우고 홈에서
+// 앱을 여는 경우가 더 많다. 그때도 "봤다"로 세려면 앱이 알려야 한다.
+// 어느 알림인지는 서버가 최근 발송 기록으로 판단한다.
+async function ackOnOpen() {
+  try {
+    const reg = await navigator.serviceWorker?.ready;
+    const sub = await reg?.pushManager?.getSubscription();
+    if (!sub) return;
+    await fetch("/api/push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "ack_open", endpoint: sub.endpoint }),
+    });
+  } catch (_) {}
 }
 
 // 화면을 보고 있으면 자동으로 확인 처리 (단계가 더 나빠지면 서버가 무효화한다)

@@ -1,4 +1,7 @@
 :root {
+  /* 브라우저의 자동 색 보정을 막는다 */
+  color-scheme: dark;
+
   --normal: #00F57A;
   --low: #FFE600;
   --high: #FF7A00;
@@ -55,7 +58,6 @@ html, body {
    가운데로 보이지 않는다. 왼쪽에 같은 폭의 빈칸을 둬 균형을 맞춘다.
    글자와 단추 크기는 종전 그대로다. */
 .app-bar-top {
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -65,52 +67,42 @@ html, body {
 /* 새로고침은 자리를 차지하지 않고 오른쪽 위에 얹는다.
    자리를 차지하게 두면 제목이 그만큼 좁아져 긴 제목이 단추와 겹친다.
    대신 제목 좌우에 단추 폭만큼 여백을 둬 절대 겹치지 않게 한다. */
-/* 왼쪽 구석 로고. 새로고침 단추와 같은 방식으로, 자리를 차지하지 않고
-   얹어 둔다. 자리를 차지하게 두면 가운데 제목이 그만큼 밀린다.
-   엠블럼+기관명+영문명이 한 장으로 묶인 그림, 가로세로비 1.148:1.
-   62×54, 왼쪽 8 → 오른쪽 끝 70. 제목 좌우 여백은 여유를 둬 72px.
-   세로는 새로고침(34~78)의 한가운데 56에 맞춰 29에서 시작한다. */
-.app-brand {
-  position: absolute;
-  left: 8px;
-  top: 0;
-  transform: translateX(-0.9mm);
-  height: calc(100% - 15px);
-  max-height: 64px;
-  width: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  display: block;
-  cursor: pointer;
-  touch-action: manipulation;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-}
-.app-brand img { height: 100%; width: auto; display: block; pointer-events: none; }
-
-/* 2초 길게 누르는 동안 아래에 진행 막대가 차오른다 */
-.app-brand::after {
-  content: "";
-  position: absolute;
-  left: 0; right: 0; bottom: -5px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--accent);
-  transform: scaleX(0);
-  transform-origin: left;
-  opacity: 0;
-}
-.app-brand.holding::after { opacity: 1; transform: scaleX(1); transition: transform 2s linear; }
-.app-brand.holding img { opacity: 0.6; transition: opacity 0.2s ease; }
+.app-bar-spacer { display: none; }
 
 .app-bar-main {
   flex: 1;
   min-width: 0;
-  /* 왼쪽 로고(8+62)와 오른쪽 새로고침(10+44) 어느 쪽과도 겹치지 않는 폭 */
-  padding: 0 84px;
+  /* 좌우에 로고와 새로고침 폭만큼 여백을 둔다. 제목이 정중앙에 오고
+     어느 쪽과도 겹치지 않는다. */
+  padding: 0 56px;
   text-align: center;
+}
+
+/* 왼쪽 구석 소속 표시 */
+.app-brand {
+  position: absolute;
+  top: 14px;
+  left: 2px;
+  width: 54px;
+  text-align: center;
+  line-height: 1;
+  pointer-events: none;
+}
+.app-brand img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto;
+}
+.app-brand span {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: #c9d4e2;
+  white-space: nowrap;
 }
 
 .app-title {
@@ -120,9 +112,16 @@ html, body {
   white-space: nowrap;
 }
 
-/* 좁은 기기에서 제목이 잘리지 않도록 조금 줄인다 */
+/* 로고와 새로고침이 양쪽을 차지하므로 제목이 들어갈 폭이 줄었다.
+   좁은 기기에서 잘리지 않게 단계적으로 줄인다. */
+@media (max-width: 420px) {
+  .app-title { font-size: 1.22rem; }
+}
 @media (max-width: 359px) {
-  .app-title { font-size: 1.2rem; }
+  .app-title { font-size: 1.08rem; }
+  .app-brand { width: 46px; }
+  .app-brand img { width: 30px; height: 30px; }
+  .app-bar-main { padding: 0 48px; }
 }
 
 /* 날짜와 요일. 제목과는 조금 떼고, 담당자 줄과는 바짝 붙인다.
@@ -193,14 +192,6 @@ html, body {
   cursor: pointer;
 }
 .pb-btn:active { transform: scale(0.96); }
-/* 자동으로 사라지는 안내는 깜빡였다가 흐려진다 */
-.push-banner.pb-flash { animation: pbBlink 0.8s ease-in-out infinite; }
-.push-banner.pb-out { opacity: 0; transition: opacity 0.4s ease; }
-@keyframes pbBlink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.25; }
-}
-
 @keyframes pbPulse {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--critical) 40%, transparent); }
   50% { box-shadow: 0 0 0 6px transparent; }
@@ -220,11 +211,8 @@ html, body {
 
 .refresh-btn {
   position: absolute;
-  /* 로고와 같은 구간(제목 위 ~ 전화번호 아래)의 한가운데.
-     좌우 여백도 로고의 left와 같은 8px로 맞춘다. */
-  top: calc((100% - 15px) / 2);
-  transform: translateY(-50%);
-  right: 8px;
+  top: 32px;
+  right: 6px;
   width: 44px;
   height: 44px;
   /* 둥근 단추. 머릿글의 각진 상자 안에서 유일하게 둥글어 눈에 잡힌다. */
@@ -239,7 +227,7 @@ html, body {
   justify-content: center;
   flex-shrink: 0;
 }
-.refresh-btn:active { background: var(--surface); color: var(--text); transform: translateY(-50%) scale(0.95); }
+.refresh-btn:active { background: var(--surface); color: var(--text); transform: scale(0.95); }
 #refreshIcon.spin { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -470,9 +458,10 @@ details[open] .chev { transform: rotate(180deg); }
 .legend .lg i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
 .legend .lg-unit { margin-left: auto; }
 
-.detail-list { padding: 0 8px 10px; }
+/* 그래프가 폭을 최대한 쓰도록 좌우 여백을 줄인다 */
+.detail-list { padding: 0 2px 10px; }
 
-.dt-item { padding: 10px 8px; border-top: 1px solid var(--border); }
+.dt-item { padding: 10px 2px; border-top: 1px solid var(--border); }
 .dt-item:first-child { border-top: none; }
 .dt-top {
   display: flex;
@@ -533,27 +522,9 @@ details[open] .chev { transform: rotate(180deg); }
 @media (max-width: 480px) {
   .manager-info .mi-row { font-size: 0.7rem; }
   .app-title { font-size: 1.2rem; }
-  .app-bar-main { padding: 0 80px; }
-  .app-brand { max-height: 62px; }
-}
-
-/* 좁아질수록 로고와 제목 여백을 함께 줄인다.
-   제목만 줄이면 로고가 그대로라 좌우가 어긋나 보인다.
-   50px 아래로는 내리지 않는다. 그 아래는 기관명까지 뭉갠다. */
-@media (max-width: 400px) {
-  .app-title { font-size: 1.1rem; }
-  .app-bar-main { padding: 0 78px; }
-  .app-brand { max-height: 60px; }
 }
 @media (max-width: 360px) {
   .app-title { font-size: 1.05rem; }
-  .app-bar-main { padding: 0 74px; }
-  .app-brand { left: 5px; max-height: 58px; }
-}
-@media (max-width: 340px) {
-  .app-title { font-size: 0.94rem; }
-  .app-bar-main { padding: 0 70px; }
-  .app-brand { left: 4px; max-height: 54px; }
 }
 
 .app-foot {
@@ -826,8 +797,8 @@ details[open] .chev { transform: rotate(180deg); }
   .cc-name { font-size: 1.08rem; }
 
   .app-bar { padding: 18px 6px 0; }
-  .refresh-btn { right: 2px; }
-  .app-brand { left: 2px; }
+  .refresh-btn { top: 36px; right: 2px; }
+  .app-brand { top: 18px; left: 4px; }
   .status-band { margin: 0 -6px; padding: 12px 20px; }
 }
 
@@ -870,3 +841,77 @@ details[open] .chev { transform: rotate(180deg); }
 .sb-sep { color: #41506180; }
 
 .status-band b { color: #c9d4e2; font-weight: 600; }
+
+
+/* ── 시간대별 그래프 그리기 연출 ────────────────────────────────
+   화면에 들어올 때 위에서 아래로 한 지점씩, 선이 왼쪽에서 오른쪽으로
+   그려진다. 한 번만 돌고 이후 갱신 때는 조용하다. */
+
+.draw-charts .dt-item {
+  animation: chartIn 700ms cubic-bezier(0.19, 1, 0.22, 1) backwards;
+}
+.draw-charts .dt-item:nth-child(1) { animation-delay: 0ms; }
+.draw-charts .dt-item:nth-child(2) { animation-delay: 90ms; }
+.draw-charts .dt-item:nth-child(3) { animation-delay: 180ms; }
+.draw-charts .dt-item:nth-child(4) { animation-delay: 270ms; }
+.draw-charts .dt-item:nth-child(5) { animation-delay: 360ms; }
+.draw-charts .dt-item:nth-child(n + 6) { animation-delay: 450ms; }
+
+@keyframes chartIn {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 선은 왼쪽부터 그어진다 */
+.draw-charts .dt-spark polyline {
+  /* 음수로 두어야 선이 왼쪽(이른 시각)부터 그어진다.
+     양수면 오른쪽 끝에서부터 거꾸로 그려진다. */
+  stroke-dasharray: var(--len, 1200);
+  stroke-dashoffset: calc(var(--len, 1200) * -1);
+  animation: drawLine 1100ms cubic-bezier(0.33, 0, 0.2, 1) forwards;
+}
+.draw-charts .dt-item:nth-child(2) .dt-spark polyline { animation-delay: 90ms; }
+.draw-charts .dt-item:nth-child(3) .dt-spark polyline { animation-delay: 180ms; }
+.draw-charts .dt-item:nth-child(4) .dt-spark polyline { animation-delay: 270ms; }
+.draw-charts .dt-item:nth-child(5) .dt-spark polyline { animation-delay: 360ms; }
+.draw-charts .dt-item:nth-child(n + 6) .dt-spark polyline { animation-delay: 450ms; }
+
+@keyframes drawLine {
+  to { stroke-dashoffset: 0; }
+}
+
+.draw-charts .dt-spark polygon,
+.draw-charts .dt-spark circle {
+  animation: fadeIn 700ms ease-out 500ms backwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+}
+
+
+/* 그래프 점을 누르면 뜨는 값 표시 */
+.dt-dot { cursor: pointer; }
+.dt-hit { fill: transparent; cursor: pointer; }
+
+.spark-tip {
+  position: fixed;
+  z-index: 60;
+  transform: translate(-50%, -100%);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 6px 18px -8px #000;
+  animation: tipIn 140ms ease-out;
+}
+.spark-tip b { color: #38bdf8; }
+
+@keyframes tipIn {
+  from { opacity: 0; transform: translate(-50%, -92%); }
+}

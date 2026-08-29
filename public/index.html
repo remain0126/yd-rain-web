@@ -3,8 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
-<title>영덕군 강우상황 모니터링</title>
+<title>기상위험 예방시스템</title>
 <meta name="theme-color" content="#0a0f16" />
+<!-- 이미 어두운 화면임을 알린다. 이 선언이 없으면 일부 모바일 브라우저가
+     자체 어둡게 하기 기능으로 색을 다시 칠해, 설치한 앱과 색이 달라진다. -->
+<meta name="color-scheme" content="dark" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="영덕강우" />
@@ -19,19 +22,17 @@
   <div class="app">
     <header class="app-bar">
       <div class="app-bar-top">
-        <!-- 왼쪽 구석 로고. 엠블럼·기관명·영문명이 한 장에 들어 있다.
-             새로고침 단추처럼 자리를 차지하지 않고 얹어 두어,
-             제목은 그대로 화면 정중앙에 남는다. -->
-        <button type="button" class="app-brand" id="brandBtn"
-                aria-label="영덕소방서 · 길게 누르면 알림 켜기/끄기">
-          <img src="/logo.png" alt="" width="62" height="54" decoding="async" />
-        </button>
+        <!-- 왼쪽 빈칸은 오른쪽 새로고침과 같은 폭이다.
+             제목이 화면 정중앙에 오게 하려고 둔다. -->
+        <span class="app-bar-spacer" aria-hidden="true"></span>
+        <!-- 왼쪽 구석 소속 표시. logo.png는 배경이 투명한 엠블럼 그림이다. -->
+        <div class="app-brand">
+          <img src="/logo.png" alt="" width="34" height="34" />
+          <span>영덕소방서</span>
+        </div>
         <div class="app-bar-main">
-          <div class="app-title">영덕군 강우상황 모니터링</div>
+          <div class="app-title">기상위험 예방시스템</div>
           <div class="app-sub" id="dateLabel">불러오는 중…</div>
-          <div class="manager-info">
-            예방안전과 정다호 · <a class="mi-tel" href="tel:054-730-1536">054-730-1536</a>
-          </div>
         </div>
         <button type="button" id="refreshBtn" class="refresh-btn" aria-label="새로고침">
           <span id="refreshIcon">↻</span>
@@ -42,6 +43,10 @@
         <button type="button" class="pb-btn" id="pushBannerBtn" hidden>지금 켜기</button>
       </div>
       <div class="push-note" id="pushNote" hidden></div>
+      <div class="manager-info">
+        예방안전과 정다호 · <a class="mi-tel" href="tel:054-730-1536">054-730-1536</a>
+      </div>
+
       <!-- 상태 띠. 단계가 오르면 이 띠 전체가 그 색으로 물든다. -->
       <div class="status-band" id="statusBand">
         <span class="sb-state" id="rainState">확인 중</span>
