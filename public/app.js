@@ -220,7 +220,7 @@ function renderRanking(rows) {
       const fillColor =
         it.riskKey !== "normal"
           ? `background:${it.riskColor};box-shadow:0 0 8px -2px ${it.riskColor}aa;`
-          : "background:linear-gradient(90deg,#38bdf8,#0ea5e9);";
+          : "background:#38bdf8;box-shadow:0 0 10px -2px #38bdf8;";
       return `
         <div class="rk-row">
           <span class="rk-num" style="color:${rankColor};">${idx + 1}</span>

@@ -88,7 +88,7 @@ html, body {
    바깥 여백이 좌우 같아진다. */
 .app-brand {
   position: absolute;
-  top: 8px;
+  top: 2px;
   left: 4px;
   width: 66px;
   height: 78px;
@@ -120,7 +120,7 @@ html, body {
 @media (max-width: 359px) {
   .app-title { font-size: 1.08rem; }
   .app-brand { width: 54px; height: 68px; }
-  .refresh-btn { top: 20px; right: 9px; }
+  .refresh-btn { top: 14px; right: 9px; }
   .app-bar-main { padding: 0 60px; }
 }
 
@@ -211,8 +211,8 @@ html, body {
 
 .refresh-btn {
   position: absolute;
-  /* 로고 자리(높이 78px, 위 8px)의 한가운데에 맞춘다 */
-  top: 25px;
+  /* 로고 자리(높이 78px, 위 2px)의 한가운데에 맞춘다 */
+  top: 19px;
   /* 로고와 같은 66px 자리의 가운데 = 4 + (66 - 44) / 2 */
   right: 15px;
   width: 44px;
@@ -398,7 +398,7 @@ html, body {
 .rk-track {
   flex: 1;
   height: 8px;
-  background: var(--surface-2);
+  background: #16202e;
   border-radius: 999px;
   overflow: hidden;
 }
@@ -410,8 +410,9 @@ html, body {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #38bdf8, #0ea5e9);
-  box-shadow: 0 0 8px -2px #38bdf8aa;
+  /* 그라데이션은 화면에 따라 어둡게 깔리는 일이 있어 단색으로 둔다 */
+  background: #38bdf8;
+  box-shadow: 0 0 10px -2px #38bdf8;
   min-width: 4px;
 }
 .rk-val {
@@ -804,8 +805,8 @@ details[open] .chev { transform: rotate(180deg); }
   .cc-name { font-size: 1.08rem; }
 
   .app-bar { padding: 18px 6px 0; }
-  .app-brand { top: 12px; left: 6px; width: 78px; height: 88px; }
-  .refresh-btn { top: 34px; right: 23px; }
+  .app-brand { top: 6px; left: 6px; width: 78px; height: 88px; }
+  .refresh-btn { top: 28px; right: 23px; }
   .app-bar-main { padding: 0 90px; }
   .status-band { margin: 0 -6px; padding: 12px 20px; }
 }
