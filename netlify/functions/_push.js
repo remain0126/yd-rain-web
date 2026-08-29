@@ -8,6 +8,9 @@ const webpush = require("web-push");
 
 const STORE_NAME = "rainfall-history";
 const SUBS_KEY = "push-subscriptions";
+// 가장 최근에 보낸 알림 한 건. 알림을 지우지 않고 앱만 연 경우에도
+// "그 알림을 봤다"고 셀 수 있도록 서버가 기억해 둔다.
+const LAST_EVENT_KEY = "push-last-event";
 
 // 발송자 신원. 브라우저 푸시 서버가 문제 발생 시 연락할 주소.
 const CONTACT = "mailto:yd119@korea.kr";
@@ -122,8 +125,36 @@ async function sendOne(sub, payload) {
 /**
  * 여러 구독에 발송하고, 사라진 구독은 명단에서 정리한다.
  */
+// 최근 보낸 알림 기록
+async function setLastEvent(info, event) {
+  const store = blobStore(event);
+  if (!store) return false;
+  try {
+    await store.setJSON(LAST_EVENT_KEY, { ...info, at: new Date().toISOString() });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function getLastEvent(event) {
+  const store = blobStore(event);
+  if (!store) return null;
+  try {
+    return await store.get(LAST_EVENT_KEY, { type: "json" });
+  } catch (_) {
+    return null;
+  }
+}
+
 async function sendMany(targets, payload, event) {
   setupVapid();
+
+  // 알림마다 번호를 붙인다. 확인 신호가 이 번호를 들고 돌아오므로
+  // "어느 알림을 몇 명이 봤는지"를 건별로 셀 수 있다.
+  const eid = payload.eid || `${payload.kind || "evt"}-${Date.now().toString(36)}`;
+  payload = { ...payload, eid };
+
   const results = await Promise.all(targets.map((s) => sendOne(s, payload)));
 
   const gone = targets.filter((_, i) => results[i].gone).map((s) => s.endpoint);
@@ -132,8 +163,14 @@ async function sendMany(targets, payload, event) {
     await writeSubs(list.filter((s) => !gone.includes(s.endpoint)), event);
   }
 
+  const sent = results.filter((r) => r.ok).length;
+  if (sent) {
+    await setLastEvent({ eid, kind: payload.kind || "", title: payload.title || "", sent }, event);
+  }
+
   return {
-    sent: results.filter((r) => r.ok).length,
+    eid,
+    sent,
     failed: results.filter((r) => !r.ok && !r.gone).length,
     cleaned: gone.length,
     errors: results.filter((r) => !r.ok && !r.gone).map((r) => `${r.status} ${r.message}`),
@@ -147,5 +184,7 @@ module.exports = {
   addSub,
   removeSub,
   sendMany,
+  setLastEvent,
+  getLastEvent,
   SUBS_KEY,
 };

@@ -138,8 +138,10 @@ function emptyDay(date) {
     rain: {},
     // 접속 집계
     visits: { total: 0, byHour: new Array(24).fill(0), uniq: [] },
-    // 푸시 집계
-    push: { sent: 0, acked: 0, subscribers: 0, byType: {} },
+    // 푸시 집계.
+    // events는 알림 건별 기록이다. 하루 단위 파일이므로 자정에 저절로 0에서 시작한다.
+    //   { "<건 번호>": { kind, title, at, sent, acked } }
+    push: { sent: 0, acked: 0, subscribers: 0, byType: {}, events: {} },
     // 단계·특보 변화 기록
     events: [],
     updated_at: new Date().toISOString(),
@@ -249,9 +251,43 @@ async function flushToday(event) {
   return day.date;
 }
 
+/**
+ * 알림 한 건을 발송했을 때 기록한다.
+ */
+async function recordDispatch(eid, meta, sent, event) {
+  const day = await readDay(event);
+  if (!day.push.events) day.push.events = {};
+  day.push.events[eid] = {
+    kind: (meta && meta.kind) || "",
+    title: (meta && meta.title) || "",
+    at: new Date().toISOString(),
+    sent: Number(sent) || 0,
+    acked: 0,
+  };
+  await writeDay(day, event);
+  return day.push.events[eid];
+}
+
+/**
+ * 그 건을 확인한 사람이 한 명 늘었을 때 기록한다.
+ * 같은 기기가 두 번 세지 않도록 거르는 일은 부르는 쪽에서 한다.
+ */
+async function recordAck(eid, event) {
+  const day = await readDay(event);
+  if (!day.push.events) day.push.events = {};
+  if (!day.push.events[eid]) {
+    day.push.events[eid] = { kind: "", title: "", at: new Date().toISOString(), sent: 0, acked: 0 };
+  }
+  day.push.events[eid].acked += 1;
+  await writeDay(day, event);
+  return day.push.events[eid].acked;
+}
+
 module.exports = {
   recordWatch,
   recordVisit,
+  recordDispatch,
+  recordAck,
   flushToday,
   readDay,
   kstDate,

@@ -52,21 +52,61 @@ exports.handler = async function (event) {
       return reply(200, { ok: true, ...r });
     }
 
-    if (body.action === "ack") {
-      const { readSubs, writeSubs } = require("./_push");
+    // 알림 확인.
+    //
+    // 세 경로가 모두 여기로 온다.
+    //   - 알림의 확인 버튼
+    //   - 알림 본문을 눌러 앱이 열림
+    //   - 알림을 지움(밀어서 없앰)
+    //   - 알림을 받은 뒤 앱을 그냥 연 경우 (action: "ack_open")
+    //
+    // 건별 확인자 수는 하루 단위 기록에 쌓는다. 같은 기기가 같은 건을
+    // 여러 번 눌러도 한 번만 센다.
+    if (body.action === "ack" || body.action === "ack_open") {
+      const { readSubs, writeSubs, getLastEvent } = require("./_push");
+      const logbook = require("./_logbook");
+
       const list = await readSubs(event);
       const s = list.find((x) => x.endpoint === body.endpoint);
       if (!s) return reply(404, { ok: false, error: "등록되지 않은 구독" });
-      // 확인은 단계(rank) 기준으로 기억한다. 숫자가 작을수록 심각하다.
-      // 이후 같은 수준이거나 덜 심각하면 알리지 않고, 더 나빠지면 다시 알린다.
+
+      // 어느 알림에 대한 확인인지 가린다.
+      // 앱만 연 경우에는 최근에 보낸 알림을 대상으로 본다.
+      let eid = body.eid || null;
+      let last = null;
+      if (!eid) {
+        last = await getLastEvent(event);
+        // 너무 오래된 알림까지 확인으로 치지 않는다
+        const fresh =
+          last && last.at && Date.now() - new Date(last.at).getTime() < 12 * 3600 * 1000;
+        if (fresh) eid = last.eid;
+      }
+
+      // 반복 알림을 멈추는 용도. 단계는 숫자가 작을수록 심각하다.
       const rank = Number.isFinite(Number(body.rank)) ? Number(body.rank) : 3;
       s.ackRank = rank;
       s.ackAt = new Date().toISOString();
       s.ackCount = (s.ackCount || 0) + 1;
+
+      // 같은 건을 이미 확인했으면 다시 세지 않는다
+      let counted = false;
+      if (eid && s.ackEid !== eid) {
+        s.ackEid = eid;
+        counted = true;
+      }
+
       const okWrite = await writeSubs(list, event);
+      if (counted) {
+        try {
+          await logbook.recordAck(eid, event);
+        } catch (_) {}
+      }
+
       return reply(200, {
         ok: true,
         acked: true,
+        eid,
+        counted,
         ackRank: rank,
         saved: okWrite,
         ackCount: s.ackCount,
