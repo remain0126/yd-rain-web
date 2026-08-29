@@ -74,35 +74,35 @@ html, body {
   min-width: 0;
   /* 좌우에 로고와 새로고침 폭만큼 여백을 둔다. 제목이 정중앙에 오고
      어느 쪽과도 겹치지 않는다. */
-  padding: 0 56px;
+  padding: 0 72px;
   text-align: center;
 }
 
 /* 왼쪽 구석 소속 표시 */
+/* 왼쪽 구석 소속 표시.
+   그림 안에 엠블럼과 글씨가 세로로 들어 있다.
+   오른쪽 세 줄(제목·날짜·담당자)의 높이 안에 들어오도록 높이를 묶고,
+   그 안에서 비율을 지키며 최대한 크게 넣는다. */
+/* 왼쪽 로고와 오른쪽 새로고침이 같은 폭의 자리를 차지하도록 맞춘다.
+   로고 66px, 단추 44px로 크기는 다르지만 각자 자기 자리의 가운데에 놓여
+   바깥 여백이 좌우 같아진다. */
 .app-brand {
   position: absolute;
-  top: 14px;
-  left: 2px;
-  width: 54px;
-  text-align: center;
-  line-height: 1;
+  top: 12px;
+  left: 4px;
+  width: 66px;
+  height: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   pointer-events: none;
 }
 .app-brand img {
-  width: 34px;
-  height: 34px;
-  object-fit: contain;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
   display: block;
-  margin: 0 auto;
-}
-.app-brand span {
-  display: block;
-  margin-top: 3px;
-  font-size: 0.56rem;
-  font-weight: 700;
-  letter-spacing: -0.3px;
-  color: #c9d4e2;
-  white-space: nowrap;
 }
 
 .app-title {
@@ -115,13 +115,13 @@ html, body {
 /* 로고와 새로고침이 양쪽을 차지하므로 제목이 들어갈 폭이 줄었다.
    좁은 기기에서 잘리지 않게 단계적으로 줄인다. */
 @media (max-width: 420px) {
-  .app-title { font-size: 1.22rem; }
+  .app-title { font-size: 1.18rem; }
 }
 @media (max-width: 359px) {
   .app-title { font-size: 1.08rem; }
-  .app-brand { width: 46px; }
-  .app-brand img { width: 30px; height: 30px; }
-  .app-bar-main { padding: 0 48px; }
+  .app-brand { width: 54px; height: 68px; }
+  .refresh-btn { top: 24px; right: 9px; }
+  .app-bar-main { padding: 0 60px; }
 }
 
 /* 날짜와 요일. 제목과는 조금 떼고, 담당자 줄과는 바짝 붙인다.
@@ -211,8 +211,10 @@ html, body {
 
 .refresh-btn {
   position: absolute;
-  top: 32px;
-  right: 6px;
+  /* 로고 자리(높이 78px, 위 12px)의 한가운데에 맞춘다 */
+  top: 29px;
+  /* 로고와 같은 66px 자리의 가운데 = 4 + (66 - 44) / 2 */
+  right: 15px;
   width: 44px;
   height: 44px;
   /* 둥근 단추. 머릿글의 각진 상자 안에서 유일하게 둥글어 눈에 잡힌다. */
@@ -797,8 +799,9 @@ details[open] .chev { transform: rotate(180deg); }
   .cc-name { font-size: 1.08rem; }
 
   .app-bar { padding: 18px 6px 0; }
-  .refresh-btn { top: 36px; right: 2px; }
-  .app-brand { top: 18px; left: 4px; }
+  .app-brand { top: 16px; left: 6px; width: 78px; height: 88px; }
+  .refresh-btn { top: 38px; right: 23px; }
+  .app-bar-main { padding: 0 90px; }
   .status-band { margin: 0 -6px; padding: 12px 20px; }
 }
 
