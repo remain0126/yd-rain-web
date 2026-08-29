@@ -186,6 +186,20 @@ function renderCenters(rows) {
 
 // ---------- Ranking ----------
 
+// 막대를 그림(SVG)으로 그린다.
+//
+// 색을 칠한 넓은 면은 일부 브라우저의 "웹페이지 어둡게" 기능이 어둡게
+// 바꿔버린다. 짧은 막대는 그대로 두고 긴 막대만 눌려서, 같은 색인데
+// 길이에 따라 달라 보였다. 그림은 그 대상이 아니라 색이 그대로 나온다.
+function bar(pct, color) {
+  const w = Math.max(2, Math.min(100, Number(pct) || 0));
+  return (
+    `<svg class="rk-svg" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true">` +
+    `<rect x="0" y="0" width="${w}" height="8" rx="4" fill="${color}"/>` +
+    `</svg>`
+  );
+}
+
 function renderRanking(rows) {
   const el = $("ranking");
   const items = EUPMYEON_ORDER.filter((n) => rows[n]).map((n) => {
@@ -216,16 +230,12 @@ function renderRanking(rows) {
         ? `<span class="rk-zone" style="background:${it.riskColor}22;color:${it.riskColor};border-color:${it.riskColor}66;">${zone}</span>`
         : "";
       // 단계가 오른 곳은 그 단계 색, 평상시는 강우량을 뜻하는 파랑.
-      // 코드에서 직접 지정해 어떤 화면에서도 같은 색으로 보이게 한다.
-      const fillColor =
-        it.riskKey !== "normal"
-          ? `background:${it.riskColor};box-shadow:0 0 8px -2px ${it.riskColor}aa;`
-          : "background:#38bdf8;box-shadow:0 0 10px -2px #38bdf8;";
+      const barColor = it.riskKey !== "normal" ? it.riskColor : "#38bdf8";
       return `
         <div class="rk-row">
           <span class="rk-num" style="color:${rankColor};">${idx + 1}</span>
           <span class="rk-name">${dn(it.name)}</span>
-          <span class="rk-track"><span class="rk-fill" style="width:${pct}%;${fillColor}"></span></span>
+          <span class="rk-track">${bar(pct, barColor)}</span>
           ${badge}
           <span class="rk-val">${fmtMm(it.value)}</span>
         </div>`;

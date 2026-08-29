@@ -406,14 +406,13 @@ html, body {
    단계 색(초록·노랑·주황)은 위험도를, 이 파랑은 강우량의 많고 적음을 뜻한다.
    아래 시간대별 그래프의 범례와 같은 계열이라 눈이 헷갈리지 않는다.
    어두운 바탕에서 묻히지 않도록 밝기를 올린다. */
-.rk-fill {
+/* 막대는 그림으로 그린다 (app.js의 bar 함수).
+   색을 칠한 넓은 면은 브라우저의 어둡게 하기 기능에 눌리지만
+   그림은 그대로 나온다. */
+.rk-svg {
   display: block;
-  height: 100%;
-  border-radius: 999px;
-  /* 그라데이션은 화면에 따라 어둡게 깔리는 일이 있어 단색으로 둔다 */
-  background: #38bdf8;
-  box-shadow: 0 0 10px -2px #38bdf8;
-  min-width: 4px;
+  width: 100%;
+  height: 8px;
 }
 .rk-val {
   width: 52px;
@@ -647,15 +646,15 @@ details[open] .chev { transform: rotate(180deg); }
 
 /* 막대는 값이 채워지듯 왼쪽에서 자란다.
    순위표는 화면을 내려야 보이므로, 눈에 들어온 순간에 한 번만 돈다. */
-.reveal-bars .rk-fill {
+.reveal-bars .rk-svg {
   transform-origin: left;
   animation: growBar 1000ms cubic-bezier(0.19, 1, 0.22, 1) backwards;
 }
-.reveal-bars .rk-row:nth-child(2) .rk-fill { animation-delay: 100ms; }
-.reveal-bars .rk-row:nth-child(3) .rk-fill { animation-delay: 200ms; }
-.reveal-bars .rk-row:nth-child(4) .rk-fill { animation-delay: 300ms; }
-.reveal-bars .rk-row:nth-child(5) .rk-fill { animation-delay: 400ms; }
-.reveal-bars .rk-row:nth-child(n + 6) .rk-fill { animation-delay: 500ms; }
+.reveal-bars .rk-row:nth-child(2) .rk-svg { animation-delay: 100ms; }
+.reveal-bars .rk-row:nth-child(3) .rk-svg { animation-delay: 200ms; }
+.reveal-bars .rk-row:nth-child(4) .rk-svg { animation-delay: 300ms; }
+.reveal-bars .rk-row:nth-child(5) .rk-svg { animation-delay: 400ms; }
+.reveal-bars .rk-row:nth-child(n + 6) .rk-svg { animation-delay: 500ms; }
 
 @keyframes growBar {
   from { transform: scaleX(0); }
