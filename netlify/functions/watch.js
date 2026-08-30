@@ -102,10 +102,10 @@ function rainStore(event) {
 
 // 발송 결과를 건별 기록에 남긴다.
 // 번호는 sendMany가 붙여 결과에 담아 돌려준다.
-async function logDispatch(result, kind, event) {
-  if (!result || !result.eid || !result.sent) return;
+async function logDispatch(result, kind, title, event) {
+  if (!result || !result.eid) return;
   try {
-    await logbook.recordDispatch(result.eid, { kind, title: kind }, result.sent, event);
+    await logbook.recordDispatch(result.eid, { kind, title: title || kind }, result.sent || 0, event);
   } catch (_) {}
 }
 
@@ -493,9 +493,15 @@ async function dispatchWarningChange(now, prev, event) {
   const addedPending = added.some((t) => t.includes("발효"));
   const upPending = up.some((t) => t.includes("발효"));
 
+  // 발표와 동시에 발효된 것은 예고 도달 알림과 같은 문구로 적는다
+  const nowWhen = fmtWhen(Date.now());
+  const asEffective = (list) => list.map((l) => `${l} ${nowWhen} 발효되었습니다.`);
+
   const lines = [];
   if (up.length) lines.push((upPending ? "상향 발표 " : "상향 ") + up.join(" · "));
-  if (added.length) lines.push((addedPending ? "발표 " : "발효 ") + added.join(" · "));
+  if (added.length) {
+    lines.push(addedPending ? "발표 " + added.join(" · ") : asEffective(added).join("\n"));
+  }
   if (down.length) lines.push("하향 " + down.join(" · "));
   if (removed.length) lines.push("해제 " + removed.join(" · "));
   if (!lines.length) return { skipped: "변동 없음" };
@@ -535,7 +541,7 @@ async function dispatchWarningChange(now, prev, event) {
  * 발표 시점에는 이미 단계가 오르고 반복 알림이 나가고 있다.
  * 이 알림은 "예고했던 그 시각이 됐다"를 알리는 것이라 반복하지 않는다.
  */
-async function dispatchEffective(labels, event) {
+async function dispatchEffective(labels, effAt, event) {
   if (!configured()) return { skipped: "VAPID 미설정" };
   const subs = await readSubs(event);
   if (!subs.length) return { skipped: "구독자 없음" };
@@ -544,8 +550,10 @@ async function dispatchEffective(labels, event) {
     subs,
     {
       title: "영덕군 기상특보 발효",
-      kind: "발효",
-      body: `${labels.join(" · ")} 발효되었습니다. (예고했던 시각에 효력 시작)`,
+      kind: "특보 발효",
+      // 발효 알림은 어느 경우든 같은 형식으로 적는다.
+      //   "폭염주의보 8월 30일(일) 11:00 발효되었습니다."
+      body: labels.map((l) => `${l} ${fmtWhen(effAt[l] || Date.now())} 발효되었습니다.`).join("\n"),
       tag: `yd-rain-effective-${Date.now()}`,
       group: "yd-rain-warning",
       url: "/",
@@ -733,8 +741,13 @@ async function runCycle(event, log, round) {
 
     if (becameEffective.length) {
       log.effective_now = becameEffective;
-      log.dispatch_effective = await dispatchEffective(becameEffective, event);
-      await logDispatch(log.dispatch_effective, "특보 발효", event);
+      // 각 특보의 발효시각을 함께 넘겨 문구에 적는다
+      const effAt = {};
+      for (const p of wasPending) {
+        if (becameEffective.includes(p.label)) effAt[p.label] = p.at;
+      }
+      log.dispatch_effective = await dispatchEffective(becameEffective, effAt, event);
+      await logDispatch(log.dispatch_effective, "특보 발효", becameEffective.join(" · ") + " 발효", event);
     }
 
     // 해제 예정이 새로 잡혔으면 1회 알린다.
@@ -749,20 +762,25 @@ async function runCycle(event, log, round) {
     if (prev && newReleases.length) {
       log.release_pending = newReleases.map((p) => `${p.label} ${fmtWhen(p.at)}`);
       log.dispatch_release_pending = await dispatchReleasePending(newReleases, event);
-      await logDispatch(log.dispatch_release_pending, "해제 예정", event);
+      await logDispatch(
+        log.dispatch_release_pending,
+        "해제 예정",
+        newReleases.map((p) => p.label).join(" · ") + " 해제예정",
+        event
+      );
     }
 
     if (active) {
       log.dispatch = await dispatch(now, prev, event);
-      await logDispatch(log.dispatch, `강우 ${now.label || now.level}`, event);
+      await logDispatch(log.dispatch, "강우 단계", now.label || now.level, event);
     } else if (wasActive) {
       log.dispatch = await dispatchClear(prev, event);
       log.cleared = true;
-      await logDispatch(log.dispatch, "상황 종료", event);
+      await logDispatch(log.dispatch, "상황 종료", "상황 종료", event);
     } else if (warningsChanged) {
       log.dispatch = await dispatchWarningChange(now, prev, event);
       log.warning_change = true;
-      await logDispatch(log.dispatch, "특보 변동", event);
+      await logDispatch(log.dispatch, "특보 변동", (now.warnings || []).join(" · ") || "특보 변동", event);
     } else {
       log.dispatch = { skipped: "평상시" };
     }

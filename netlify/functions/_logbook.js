@@ -52,6 +52,17 @@ function kstHour(d = new Date()) {
   return new Date(d.getTime() + 9 * 3600 * 1000).getUTCHours();
 }
 
+// 기록에 남기는 시각. 한국 시각으로 적어 그대로 읽을 수 있게 한다.
+// (예전 기록은 세계표준시로 적혀 있어 9시간을 더해 읽어야 했다)
+function kstStamp(d = new Date()) {
+  const k = new Date(d.getTime() + 9 * 3600 * 1000);
+  const p = (n) => String(n).padStart(2, "0");
+  return (
+    `${k.getUTCFullYear()}-${p(k.getUTCMonth() + 1)}-${p(k.getUTCDate())} ` +
+    `${p(k.getUTCHours())}:${p(k.getUTCMinutes())}:${p(k.getUTCSeconds())}`
+  );
+}
+
 // ---------- GitHub ----------
 
 function ghHeaders() {
@@ -144,7 +155,7 @@ function emptyDay(date) {
     push: { sent: 0, acked: 0, subscribers: 0, byType: {}, events: {} },
     // 단계·특보 변화 기록
     events: [],
-    updated_at: new Date().toISOString(),
+    updated_at: kstStamp(),
   };
 }
 
@@ -175,7 +186,7 @@ async function readDay(event) {
 async function writeDay(day, event) {
   const store = blobStore(event);
   if (!store) return false;
-  day.updated_at = new Date().toISOString();
+  day.updated_at = kstStamp();
   try {
     await store.setJSON(DAY_KEY, day);
     return true;
@@ -212,7 +223,7 @@ async function recordWatch({ snap, warn, level, dispatch, subscribers, acked }, 
   const nowSig = `${level}|${(warn && warn.all ? warn.all : []).join(",")}`;
   if (!last || last.sig !== nowSig) {
     day.events.push({
-      at: new Date().toISOString(),
+      at: kstStamp(),
       sig: nowSig,
       level,
       warnings: (warn && warn.all) || [],
@@ -257,12 +268,16 @@ async function flushToday(event) {
 async function recordDispatch(eid, meta, sent, event) {
   const day = await readDay(event);
   if (!day.push.events) day.push.events = {};
+
+  // 확인 신호가 발송 기록보다 먼저 도착하는 일이 있다.
+  // 그때 만들어진 칸을 지우지 않고, 이미 센 확인 수를 지키며 채운다.
+  const prev = day.push.events[eid] || {};
   day.push.events[eid] = {
-    kind: (meta && meta.kind) || "",
-    title: (meta && meta.title) || "",
-    at: new Date().toISOString(),
-    sent: Number(sent) || 0,
-    acked: 0,
+    kind: (meta && meta.kind) || prev.kind || "",
+    title: (meta && meta.title) || prev.title || "",
+    at: prev.at || kstStamp(),
+    sent: Number(sent) || prev.sent || 0,
+    acked: prev.acked || 0,
   };
   await writeDay(day, event);
   return day.push.events[eid];
@@ -276,7 +291,9 @@ async function recordAck(eid, event) {
   const day = await readDay(event);
   if (!day.push.events) day.push.events = {};
   if (!day.push.events[eid]) {
-    day.push.events[eid] = { kind: "", title: "", at: new Date().toISOString(), sent: 0, acked: 0 };
+    // 발송 기록보다 확인이 먼저 왔다. 빈 칸을 만들어 두면
+    // 뒤이어 오는 발송 기록이 이름과 건수를 채운다.
+    day.push.events[eid] = { kind: "", title: "", at: kstStamp(), sent: 0, acked: 0 };
   }
   day.push.events[eid].acked += 1;
   await writeDay(day, event);
