@@ -71,15 +71,25 @@ exports.handler = async function (event) {
       if (!s) return reply(404, { ok: false, error: "등록되지 않은 구독" });
 
       // 어느 알림에 대한 확인인지 가린다.
-      // 앱만 연 경우에는 최근에 보낸 알림을 대상으로 본다.
-      let eid = body.eid || null;
-      let last = null;
-      if (!eid) {
-        last = await getLastEvent(event);
-        // 너무 오래된 알림까지 확인으로 치지 않는다
-        const fresh =
-          last && last.at && Date.now() - new Date(last.at).getTime() < 12 * 3600 * 1000;
-        if (fresh) eid = last.eid;
+      //
+      //   알림을 눌렀거나 지웠으면 그 알림의 번호가 함께 온다 → 그 건만 센다.
+      //   알림 없이 앱만 열었으면 번호가 없다 → 가장 최근에 보낸 알림 한 건만
+      //   확인으로 친다. 단, 오늘 보낸 것이어야 한다.
+      //
+      // 시간으로 끊으면(예: 12시간) 자정을 넘겨 어제 알림이 오늘 기록에
+      // 섞인다. 오늘 기록에는 그 번호가 없으므로 발송 수 0짜리 빈 칸이
+      // 생긴다. 날짜로 끊으면 그런 일이 없다.
+      //
+      // 그날 알림을 모두 확인 처리하는 방식도 검토했으나, 실제로 보지 않은
+      // 알림까지 세어 수치가 후해지므로 쓰지 않는다.
+      let targets = [];
+      if (body.eid) {
+        targets = [body.eid];
+      } else {
+        const last = await getLastEvent(event);
+        const sameDay =
+          last && last.at && logbook.kstDate(new Date(last.at)) === logbook.kstDate();
+        if (sameDay && last.eid) targets = [last.eid];
       }
 
       // 반복 알림을 멈추는 용도. 단계는 숫자가 작을수록 심각하다.
@@ -88,24 +98,28 @@ exports.handler = async function (event) {
       s.ackAt = new Date().toISOString();
       s.ackCount = (s.ackCount || 0) + 1;
 
-      // 같은 건을 이미 확인했으면 다시 세지 않는다
-      let counted = false;
-      if (eid && s.ackEid !== eid) {
-        s.ackEid = eid;
-        counted = true;
+      // 이 기기가 이미 확인한 건은 다시 세지 않는다.
+      // 목록이 무한정 길어지지 않도록 최근 50건만 들고 있는다.
+      const done = new Set(Array.isArray(s.ackEids) ? s.ackEids : []);
+      const counted = [];
+      for (const t of targets) {
+        if (!t || done.has(t)) continue;
+        done.add(t);
+        counted.push(t);
       }
+      s.ackEids = Array.from(done).slice(-50);
+      s.ackEid = counted.length ? counted[counted.length - 1] : s.ackEid;
 
       const okWrite = await writeSubs(list, event);
-      if (counted) {
+      for (const t of counted) {
         try {
-          await logbook.recordAck(eid, event);
+          await logbook.recordAck(t, event);
         } catch (_) {}
       }
 
       return reply(200, {
         ok: true,
         acked: true,
-        eid,
         counted,
         ackRank: rank,
         saved: okWrite,

@@ -300,7 +300,17 @@ async function recordAck(eid, event) {
   return day.push.events[eid].acked;
 }
 
+/**
+ * 오늘 보낸 알림들의 번호 목록.
+ * 앱을 열었을 때 아직 확인하지 않은 건을 모두 확인 처리하는 데 쓴다.
+ */
+async function listTodayEventIds(event) {
+  const day = await readDay(event);
+  return Object.keys((day.push && day.push.events) || {});
+}
+
 module.exports = {
+  listTodayEventIds,
   recordWatch,
   recordVisit,
   recordDispatch,
