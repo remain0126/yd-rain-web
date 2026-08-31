@@ -915,7 +915,13 @@ async function subscribeSilently() {
   const res = await fetch("/api/push", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "subscribe", subscription: sub.toJSON() }),
+    // 브라우저 식별자를 함께 보낸다.
+    // 서버가 같은 기기의 예전 구독을 찾아 지우는 데 쓴다.
+    body: JSON.stringify({
+      action: "subscribe",
+      subscription: sub.toJSON(),
+      vid: visitorId(),
+    }),
   }).then((r) => r.json());
 
   if (!res.ok) throw new Error(res.error || "등록 실패");
@@ -944,8 +950,38 @@ async function requestAndSubscribe() {
   banner("알림이 <b>꺼져 있습니다</b> — 재난 상황을 받을 수 없습니다.", "지금 켜기", requestAndSubscribe);
 }
 
+// 설치한 앱에서만 알림을 켤 수 있게 한다.
+//
+// 브라우저와 설치한 앱은 각각 따로 구독을 만든다. 서버는 주소가 다르면
+// 다른 기기로 볼 수밖에 없어, 한 휴대전화에 같은 알림이 여러 번 간다.
+// 알림 창구를 앱 하나로 모으면 그런 일이 생기지 않는다.
+//
+// 화면 보기는 브라우저에서도 그대로 된다. 막는 것은 알림뿐이다.
+function installNotice() {
+  // 기기별 안내 문구는 기존 것을 그대로 쓴다
+  if (isIOS) {
+    banner(
+      "이 화면에서는 알림을 받을 수 없습니다." +
+        "<small>사파리 아래 공유 버튼 → '홈 화면에 추가' 후, 추가된 아이콘으로 열어 주세요.</small>",
+      null, null, 5000
+    );
+  } else {
+    banner(
+      "이 화면에서는 알림을 받을 수 없습니다." +
+        "<small>웹앱 설치 후 알림을 설정해 주세요.</small>",
+      null, null, 5000
+    );
+  }
+}
+
 async function initPush() {
   if (!pushBanner) return;
+
+  // 브라우저로 열었으면 알림 설정 자체를 열어주지 않는다
+  if (!isStandalone) {
+    installNotice();
+    return;
+  }
 
   const supported =
     "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
@@ -988,6 +1024,8 @@ async function initPush() {
   banner("알림이 <b>꺼져 있습니다</b> — 재난 상황을 받을 수 없습니다.", "지금 켜기", requestAndSubscribe);
 }
 
+// 로고를 길게 눌러도 브라우저에서는 켤 수 없다. 안내만 띄운다.
+
 // ---------- 로고 2초 길게 누르기 = 알림 켜기/끄기 ----------
 //
 // 웹에서는 휴대폰의 알림 설정 자체를 건드릴 수 없다. 브라우저가 막아 두었고
@@ -1008,6 +1046,16 @@ async function unsubscribePush() {
 }
 
 async function togglePush() {
+  // 브라우저에서는 알림을 켤 수 없다. 설치한 앱으로만 받는다.
+  if (!isStandalone) {
+    note(
+      isIOS
+        ? "홈 화면에 추가한 뒤 그 아이콘으로 열어야 알림을 켤 수 있습니다."
+        : "웹앱 설치 후 알림을 설정해 주세요."
+    );
+    return;
+  }
+
   const supported =
     "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 
