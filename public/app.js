@@ -835,6 +835,28 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 const isStandalone =
   window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 
+// 사용자가 알림을 껐다는 사실을 기억한다.
+//
+// 알림을 꺼도 브라우저의 허용 권한은 그대로 남는다. 그러면 앱을 다시 열
+// 때 자동 등록이 그것을 되살려, 껐는데도 알림이 다시 온다.
+// 끈 뜻을 지켜주려면 따로 적어두는 수밖에 없다.
+const PUSH_OFF_KEY = "yd_push_off";
+
+function pushTurnedOff() {
+  try {
+    return localStorage.getItem(PUSH_OFF_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function setPushOff(off) {
+  try {
+    if (off) localStorage.setItem(PUSH_OFF_KEY, "1");
+    else localStorage.removeItem(PUSH_OFF_KEY);
+  } catch (_) {}
+}
+
 let bannerTimer = null;
 
 // autoHideMs를 주면 그 시간 동안 깜빡인 뒤 흐려지며 사라진다.
@@ -932,6 +954,8 @@ async function requestAndSubscribe() {
   const perm = await Notification.requestPermission();
   if (perm === "granted") {
     try {
+      // 직접 켜는 것이므로 껐던 기록을 지운다
+      setPushOff(false);
       await subscribeSilently();
       hideBanner();
       note("알림이 <b>켜졌습니다</b>.");
@@ -1000,6 +1024,12 @@ async function initPush() {
         null, null, 5000
       );
     }
+    return;
+  }
+
+  // 사용자가 직접 끈 상태면 자동으로 되살리지 않는다
+  if (pushTurnedOff()) {
+    banner("알림이 <b>꺼져 있습니다</b> — 재난 상황을 받을 수 없습니다.", "지금 켜기", requestAndSubscribe);
     return;
   }
 
@@ -1072,6 +1102,7 @@ async function togglePush() {
   if (sub) {
     try {
       await unsubscribePush();
+      setPushOff(true);
       note("알림을 <b>껐습니다</b>. 로고를 2초 누르면 다시 켜집니다.");
       banner("알림이 <b>꺼져 있습니다</b> — 재난 상황을 받을 수 없습니다.", "지금 켜기", requestAndSubscribe);
     } catch (_) {
