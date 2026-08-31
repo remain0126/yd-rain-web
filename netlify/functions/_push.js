@@ -69,9 +69,23 @@ async function writeSubs(list, event) {
  * @param {object} sub 브라우저가 만든 PushSubscription
  * @param {string} label 사용자가 적은 이름(선택)
  */
-async function addSub(sub, label, event) {
+async function addSub(sub, label, event, vid) {
   if (!sub || !sub.endpoint) throw new Error("구독 정보 없음");
-  const list = await readSubs(event);
+  let list = await readSubs(event);
+
+  // 같은 기기가 남긴 예전 구독을 지운다.
+  //
+  // 알림을 껐다 켜면 새 구독 주소가 발급되는데, 예전 주소도 살아 있어
+  // 같은 휴대전화에 알림이 두 번 간다. 브라우저마다 갖고 있는 식별자로
+  // 같은 기기임을 알아내 예전 것을 지운다.
+  // (앱을 지웠다 다시 깔면 식별자도 새로 생기므로 이 방법으로는 못 잡는다)
+  let dropped = 0;
+  if (vid) {
+    const before = list.length;
+    list = list.filter((s) => !(s.vid === vid && s.endpoint !== sub.endpoint));
+    dropped = before - list.length;
+  }
+
   const idx = list.findIndex((s) => s.endpoint === sub.endpoint);
 
   // 기존 기록을 통째로 이어받는다.
@@ -84,15 +98,19 @@ async function addSub(sub, label, event) {
     endpoint: sub.endpoint,
     keys: sub.keys,
     label: label || prev.label || "",
+    vid: vid || prev.vid || null,
     created_at: prev.created_at || new Date().toISOString(),
     updated_at: new Date().toISOString(),
+    // 이 기기가 마지막으로 살아 있음을 알린 시각.
+    // 앱을 열 때마다 갱신되며, 오래 조용하면 정리 대상이 된다.
+    seen_at: new Date().toISOString(),
   };
 
   if (idx >= 0) list[idx] = entry;
   else list.push(entry);
 
   await writeSubs(list, event);
-  return { count: list.length, isNew: idx < 0 };
+  return { count: list.length, isNew: idx < 0, dropped };
 }
 
 async function removeSub(endpoint, event) {
@@ -147,8 +165,48 @@ async function getLastEvent(event) {
   }
 }
 
+// 버려진 구독을 정리한다.
+//
+// 앱을 지웠다 다시 깔거나 알림을 껐다 켜면 새 구독 주소가 발급되고,
+// 예전 주소는 그대로 남는다. 서버는 주소가 다르면 다른 기기로 보므로
+// 같은 휴대전화에 같은 알림이 두 번 간다.
+//
+// 버려진 구독은 앱이 열리지 않아 생존 신호가 끊긴다.
+// 일정 기간 조용하면 지운다. 발송 실패로 걸러지는 것과 달리,
+// 아직 살아 있는 주소라도 쓰지 않으면 정리된다.
+//
+// 15일로 잡았다. 짧게 잡으면 며칠 앱을 안 연 사람의 알림이 끊기는데,
+// 본인은 알림이 안 오는 것을 알아챌 방법이 없어 조용히 누락된다.
+// 중복 알림보다 누락이 더 나쁘다. 중복은 설치앱 전용 정책과
+// 기기별 정리로 이미 막고 있으므로, 만료는 넉넉히 둔다.
+const STALE_DAYS = 15;
+
+function seenTime(s) {
+  const t = s.seen_at || s.ackAt || s.updated_at || s.created_at;
+  const ms = t ? new Date(t).getTime() : 0;
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+async function pruneStale(event) {
+  const list = await readSubs(event);
+  if (!list.length) return { removed: 0, count: 0 };
+
+  const cut = Date.now() - STALE_DAYS * 24 * 3600 * 1000;
+  const keep = list.filter((s) => seenTime(s) >= cut);
+  const removed = list.length - keep.length;
+
+  if (removed) await writeSubs(keep, event);
+  return { removed, count: keep.length };
+}
+
 async function sendMany(targets, payload, event) {
   setupVapid();
+
+  // 알림이 나갈 때마다 버려진 구독을 함께 정리한다.
+  // 하루 한 번만 돌면 그 사이 중복 알림이 계속 나가므로, 발송 시점에 맞춘다.
+  try {
+    await pruneStale(event);
+  } catch (_) {}
 
   // 알림마다 번호를 붙인다. 확인 신호가 이 번호를 들고 돌아오므로
   // "어느 알림을 몇 명이 봤는지"를 건별로 셀 수 있다.
@@ -184,6 +242,7 @@ module.exports = {
   addSub,
   removeSub,
   sendMany,
+  pruneStale,
   setLastEvent,
   getLastEvent,
   SUBS_KEY,

@@ -15,7 +15,7 @@
 //   - 상황이 끝나면 해제 알림을 1회 보낸다
 
 const { getWarning } = require("./_warning");
-const { readSubs, writeSubs, sendMany, configured } = require("./_push");
+const { readSubs, writeSubs, sendMany, configured, pruneStale } = require("./_push");
 const logbook = require("./_logbook");
 
 const STORE_NAME = "rainfall-history";
@@ -786,6 +786,16 @@ async function runCycle(event, log, round) {
     }
 
     log.pending = (now.pending || []).map((p) => `${p.label} ${p.kind} ${fmtWhen(p.at)}`);
+
+    // 버려진 구독 정리. 매분 할 일이 아니므로 하루 한 번만 돈다.
+    // (한국시각 새벽 4시대의 첫 감시)
+    try {
+      const k = new Date(Date.now() + 9 * 3600 * 1000);
+      if (k.getUTCHours() === 4 && k.getUTCMinutes() === 3) {
+        const pruned = await pruneStale(event);
+        if (pruned.removed) log.pruned = pruned;
+      }
+    } catch (_) {}
 
     // 알림을 켠 기기 수와 확인 상태 (점검용)
     try {

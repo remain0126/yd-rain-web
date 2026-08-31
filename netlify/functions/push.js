@@ -43,8 +43,24 @@ exports.handler = async function (event) {
 
   try {
     if (body.action === "subscribe") {
-      const r = await addSub(body.subscription, body.label, event);
+      const r = await addSub(body.subscription, body.label, event, body.vid);
       return reply(200, { ok: true, ...r });
+    }
+
+    // 구독 명단 비우기.
+    //
+    // 앱을 여러 번 지웠다 깔면 쓰지 않는 구독이 쌓여 같은 알림이 여러 번 간다.
+    // 식별자가 달라 서버가 같은 기기임을 알 수 없으므로, 한 번 비우고
+    // 각자 다시 켜는 편이 확실하다. 점검용 토큰이 있어야 부를 수 있다.
+    if (body.action === "reset") {
+      const need = process.env.WATCH_TOKEN;
+      if (need && body.token !== need) {
+        return reply(401, { ok: false, error: "인증 실패" });
+      }
+      const { writeSubs, readSubs } = require("./_push");
+      const before = (await readSubs(event)).length;
+      await writeSubs([], event);
+      return reply(200, { ok: true, cleared: before });
     }
 
     if (body.action === "unsubscribe") {
@@ -96,6 +112,8 @@ exports.handler = async function (event) {
       const rank = Number.isFinite(Number(body.rank)) ? Number(body.rank) : 3;
       s.ackRank = rank;
       s.ackAt = new Date().toISOString();
+      // 앱이 살아 있음을 알린다. 오래 조용한 구독을 정리하는 기준이 된다.
+      s.seen_at = s.ackAt;
       s.ackCount = (s.ackCount || 0) + 1;
 
       // 이 기기가 이미 확인한 건은 다시 세지 않는다.
