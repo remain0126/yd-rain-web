@@ -605,12 +605,20 @@ async function dispatchClear(prev, event) {
     event
   );
 
-  // 새 상황을 위해 기록을 비운다
+  // 새 상황을 위해 기록을 비운다.
+  //
+  // s.sent를 비우지 않으면 다음 상황에서 몰아치기가 처음부터 다시 시작하지
+  // 않는다. 다만 그대로 비우기만 하면 "이 기기에 알림이 나갔다"는 흔적까지
+  // 사라져, 해제 알림을 보고 앱을 열어도 확인으로 세지 못한다.
+  // 그래서 해제를 보낸 시각만 따로 남긴다. 단계가 없으므로 반복 중단에는
+  // 쓰이지 않고 건별 확인 집계에만 쓰인다.
+  const clearAt = Date.now();
   const fresh = await readSubs(event);
   for (const s of fresh) {
     s.sent = {};
     delete s.ackRank;
     delete s.ack;
+    s.clearAt = clearAt;
   }
   await writeSubs(fresh, event);
   return res;
