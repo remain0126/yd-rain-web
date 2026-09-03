@@ -222,6 +222,7 @@ async function sendMany(targets, payload, event) {
   }
 
   const sent = results.filter((r) => r.ok).length;
+  const okEndpoints = targets.filter((_, i) => results[i].ok).map((s) => s.endpoint);
   if (sent) {
     await setLastEvent({ eid, kind: payload.kind || "", title: payload.title || "", sent }, event);
   }
@@ -229,6 +230,7 @@ async function sendMany(targets, payload, event) {
   return {
     eid,
     sent,
+    okEndpoints,
     failed: results.filter((r) => !r.ok && !r.gone).length,
     cleaned: gone.length,
     errors: results.filter((r) => !r.ok && !r.gone).map((r) => `${r.status} ${r.message}`),

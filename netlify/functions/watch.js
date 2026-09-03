@@ -331,8 +331,10 @@ async function dispatch(now, prev, event) {
   }
 
   const res = { sent: 0, failed: 0, cleaned: 0, errors: [] };
+  const delivered = new Set();
   for (const [seq, list] of groups) {
     const r = await sendMany(list, buildPayload(now, prev, seq), event);
+    (r.okEndpoints || []).forEach((ep) => delivered.add(ep));
     res.sent += r.sent || 0;
     res.failed += r.failed || 0;
     res.cleaned += r.cleaned || 0;
@@ -343,7 +345,7 @@ async function dispatch(now, prev, event) {
   const fresh = await readSubs(event);
   for (const s of fresh) {
     const hit = targets.find((x) => x.sub.endpoint === s.endpoint);
-    if (!hit) continue;
+    if (!hit || !delivered.has(s.endpoint)) continue;
     s.sent = { count: (hit.rec.count || 0) + 1, at: t, rank: now.rank };
     // 여기까지 왔다는 건 확인 상태가 아니거나 상황이 더 나빠졌다는 뜻이므로 확인을 푼다
     delete s.ackRank;
