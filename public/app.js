@@ -449,12 +449,28 @@ function armIntro() {
   return true;
 }
 
-// 카드를 그린 직후에 부른다
-function finishIntro(armed) {
+// 카드를 그린 직후에 부른다.
+//
+// cachedView면 아직 끝이 아니다. 저장된 화면을 먼저 그린 것이고 실제 자료가
+// 뒤따라와 카드를 다시 만든다. 그때 연출이 다시 붙어야 하므로 stage-in을
+// 남겨두고 introDone도 세우지 않는다.
+//
+// 예전에는 stage-in을 이 함수가 불린 시점부터 2600ms 뒤에 시계로 떼었다.
+// 저장 화면이 700ms에 그려지면 3300ms에 떼이는데, 실제 자료가 그 뒤에
+// 도착하면 카드가 채 움직이기도 전에 클래스가 사라져 연출이 통째로 빠졌다.
+// /api/rainfall은 기상청 특보를 다시 받느라 1~3.5초를 오가므로,
+// 모바일에서 이 경계를 넘나들며 연출이 나왔다 안 나왔다 했다.
+function finishIntro(armed, cachedView) {
   if (!armed) return;
 
   const el = $("centerStatus");
-  // 연출이 끝나면 떼어낸다. 남겨두면 갱신 때마다 카드가 다시 들썩인다.
+  if (cachedView) {
+    introDone = false;   // 실제 자료가 오면 한 번 더 걸 수 있게 둔다
+    return;
+  }
+
+  // 실제 자료로 그렸으니 이제 끝이다.
+  // 남겨두면 1분마다 갱신될 때마다 카드가 다시 들썩인다.
   if (el) setTimeout(() => el.classList.remove("stage-in"), 2600);
 
   document.querySelectorAll(".center-card.elevated").forEach((c) => {
@@ -744,7 +760,7 @@ async function load(force) {
     clearTimeout(cachedTimer);
     const armed = armIntro();
     paint(data, { cachedView: false });
-    finishIntro(armed);
+    finishIntro(armed, false);
     // 순위표는 화면에 들어올 때 따로 돈다. 첫 진입 연출과 별개다.
     watchRanking();
     saveLocal(data);
@@ -759,7 +775,7 @@ async function load(force) {
       clearTimeout(cachedTimer);
       const armed = armIntro();
       paint(local, { cachedView: true });
-      finishIntro(armed);
+      finishIntro(armed, true);
       markCachedView(local);
     } else {
       $("updatedAt").textContent = "자료 수신 대기 중 · 잠시 후 자동 갱신";
@@ -791,7 +807,7 @@ if (cached) {
     if (firstPaintDone) return;
     const armed = armIntro();
     paint(cached, { cachedView: true });
-    finishIntro(armed);
+    finishIntro(armed, true);
     markCachedView(cached);
   }, 700);
 }
