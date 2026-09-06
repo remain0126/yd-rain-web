@@ -8,11 +8,6 @@
   /* 순수 검정. 안드로이드 스플래시 배경(manifest 의 background_color)과
      같은 값으로 맞춰, 여는 화면에서 본 화면으로 넘어갈 때 색이 튀지 않게 한다. */
   --bg: #000000;
-
-  /* 여는 화면 로고의 시작 배율. index.html 의 인라인 스크립트가 기기
-     화면 폭에 맞춰 덮어쓴다. 여기 값은 스크립트가 못 돌았을 때의 폴백이다.
-     360dp 기기 기준값을 적어 둔다. */
-  --splash-start: 0.20;
   --surface: #121a26;
   --surface-2: #0e1520;
   --border: #1f2c3d;
@@ -995,7 +990,7 @@ details[open] .chev { transform: rotate(180deg); }
   width: 176px;
   height: 153px;
   transform-origin: 50% 50%;
-  animation: logoGrow 820ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation: logoGrow 620ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
   will-change: transform, opacity;
   backface-visibility: hidden;
 }
@@ -1005,21 +1000,15 @@ details[open] .chev { transform: rotate(180deg); }
    막을 수 없다. 대신 두 화면을 같게 보이게 해서 경계를 없앤다.
 
    - 배경: manifest 의 background_color 와 --bg 를 둘 다 #000000 으로 맞췄다
-   - 로고: OS 스플래시는 로고를 화면 폭의 9.7% 로 그린다. 실측값이다.
-     1080px 화면에서 105px, CSS 로는 35px 이다. 176 x 0.199 = 35px 이므로
-     그 배율에서 출발하면 크기가 겹친다. 화면이 바뀌는 것이 아니라
-     정지해 있던 로고가 움직이기 시작한 것처럼 보인다.
-     배율은 --splash-start 로 들어오며 index.html 이 기기마다 계산한다.
-     투명도도 처음부터 1 이라 깜빡임이 없다.
-
-   [지속시간을 620 에서 820ms 로 늘린 이유]
-   시작 배율이 0.199 라 끝까지 5배가 커진다. 620ms 안에 5배를 움직이면
-   크기는 이어지지만 확 밀려 나오는 느낌이 난다. 배율을 타협하면 시작
-   순간이 다시 튀므로, 배율은 실측값에 두고 시간을 늘려서 완화한다. */
+   - 로고: OS 스플래시는 아이콘을 화면 짧은변의 1/4 쯤으로 띄운다.
+     화면폭 360~440px 이면 아이콘이 90~110px 이고, 그 안에 로고가
+     82% 로 들어가니 실제 로고는 74~90px 이다.
+     여기서 176 x 0.48 = 84px 로 시작하면 그 크기와 겹친다.
+     화면이 바뀌는 것이 아니라 정지해 있던 로고가 움직이기 시작한
+     것처럼 보인다. 투명도도 처음부터 1 이라 깜빡임이 없다. */
 @keyframes logoGrow {
-  0%   { opacity: 1; transform: scale3d(var(--splash-start), var(--splash-start), 1); }
+  0% { opacity: 1; transform: scale3d(0.48, 0.48, 1); }
   100% { opacity: 1; transform: scale3d(1, 1, 1); }
-}
 }
 
 /* 자료가 준비되면 걸리는 상태. 로고를 통과해 본 화면으로 들어간다. */
