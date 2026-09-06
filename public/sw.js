@@ -1,6 +1,6 @@
 // service worker: 앱 셸(정적 파일)만 캐시. 강우 데이터(/api/rainfall)는
 // 항상 네트워크에서 최신으로 받아온다 (재난 대응 특성상 실시간이 중요).
-const CACHE = "yd-rain-v39";
+const CACHE = "yd-rain-v42";
 const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/logo.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -59,7 +59,10 @@ self.addEventListener("push", (e) => {
   const options = {
     body: d.body || "",
     icon: "/icons/icon-192.png",
-    badge: "/icons/icon-192.png",
+    // 상태바 배지는 안드로이드가 알파 채널만 쓰고 흰색으로 칠한다.
+    // 색이 든 아이콘을 넣으면 흰 사각형으로 뭉개지므로 단색 실루엣을 따로 쓴다.
+    // 소방 엠블럼은 선이 가늘어 24dp에서 알아볼 수 없어 물방울로 둔다.
+    badge: "/icons/badge-96.png",
     tag: d.tag || group + "-" + Date.now(),
     renotify: true,
     requireInteraction: !!d.sticky,
@@ -70,7 +73,9 @@ self.addEventListener("push", (e) => {
       ? [700, 150, 700, 150, 700, 150, 700, 150, 700, 150, 700, 150, 700]
       : [500, 200, 500, 200, 500, 200, 500],
     actions: d.key ? [{ action: "ack", title: "확인" }] : [],
-    data: { url: d.url || "/", key: d.key || null, rank: d.rank, group },
+    // eid는 이 알림의 건 번호다. 확인 신호와 함께 돌려보내야
+    // "어느 알림을 몇 명이 봤는지"를 서버가 셀 수 있다.
+    data: { url: d.url || "/", key: d.key || null, rank: d.rank, eid: d.eid || null, group },
   };
 
   e.waitUntil(
@@ -107,6 +112,7 @@ self.addEventListener("notificationclick", (e) => {
             endpoint: sub.endpoint,
             key: data.key,
             rank: data.rank,
+            eid: data.eid,
           }),
         });
       })
