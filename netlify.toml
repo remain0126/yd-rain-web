@@ -13,11 +13,6 @@
 [functions."refresh-background"]
   background = true
 
-# 감시(watch)가 살아 있는지 5분마다 확인한다.
-# 외부 스케줄러(cron-job.org)가 죽어도 이쪽이 받는다.
-[functions."watchdog"]
-  schedule = "*/5 * * * *"
-
 [[redirects]]
   from = "/api/rainfall"
   to = "/.netlify/functions/rainfall"
@@ -36,11 +31,6 @@
 [[redirects]]
   from = "/api/watch"
   to = "/.netlify/functions/watch"
-  status = 200
-
-[[redirects]]
-  from = "/api/health"
-  to = "/.netlify/functions/watchdog"
   status = 200
 
 [[redirects]]
