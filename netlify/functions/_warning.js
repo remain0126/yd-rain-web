@@ -42,18 +42,6 @@ const TIMEOUT_MS = 6000;
 const CACHE_TTL_MS = 45 * 1000;
 let memoCache = null;
 
-// 인스턴스 사이에 공유하는 캐시의 유효시간.
-//
-// memoCache는 이 함수 인스턴스 안에서만 산다. Netlify는 인스턴스를 여러 개
-// 띄우므로 화면 요청은 대부분 캐시를 못 맞고 매번 기상청을 새로 불렀다.
-// 그 조회가 최대 3.5초여서 /api/rainfall 응답이 1~3.5초를 오갔다.
-//
-// 1분 감시(/api/watch)가 이미 특보를 새로 받고 있으니 그 결과를 저장소에
-// 남겨 화면 요청이 재사용한다. 감시가 멈추면 이 값이 낡으므로,
-// 유효시간을 감시 주기보다 조금만 길게 둬서 그때는 직접 조회로 돌아간다.
-const SHARED_TTL_MS = 90 * 1000;
-const RESULT_KEY = "kma-warning-latest";
-
 // ---------- 문자열 파싱 ----------
 
 // "경상북도(" 뒤의 괄호를 짝 맞춰 잘라낸다. 안쪽에 "완도(여서도 제외)" 같은
@@ -441,21 +429,6 @@ async function getWarning(force = false, timeoutMs, event = "auto") {
     return { ...memoCache.value, cached: true };
   }
 
-  // 다른 인스턴스가 최근에 받아 둔 결과가 있으면 그것을 쓴다.
-  if (!force) {
-    const store = blobStore(event);
-    if (store) {
-      try {
-        const shared = await store.get(RESULT_KEY, { type: "json" });
-        const at = shared && shared.checked_at ? new Date(shared.checked_at).getTime() : 0;
-        if (shared && shared.ok && at && Date.now() - at < SHARED_TTL_MS) {
-          memoCache = { at: Date.now(), value: shared };
-          return { ...shared, cached: "shared" };
-        }
-      } catch (_) {}
-    }
-  }
-
   const errors = [];
   let raw = null;
 
@@ -519,17 +492,6 @@ async function getWarning(force = false, timeoutMs, event = "auto") {
   };
 
   memoCache = { at: Date.now(), value };
-
-  // 다른 인스턴스가 재사용할 수 있도록 남긴다.
-  // 실패한 결과는 위에서 이미 걸러졌으므로 여기 오는 값은 성공분이다.
-  {
-    const store = blobStore(event);
-    if (store) {
-      try {
-        await store.setJSON(RESULT_KEY, value);
-      } catch (_) {}
-    }
-  }
   return value;
 }
 

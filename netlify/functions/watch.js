@@ -15,14 +15,7 @@
 //   - 상황이 끝나면 해제 알림을 1회 보낸다
 
 const { getWarning } = require("./_warning");
-const {
-  readSubs,
-  updateSub,
-  updateAllSubs,
-  sendMany,
-  configured,
-  pruneStale,
-} = require("./_push");
+const { readSubs, writeSubs, sendMany, configured, pruneStale } = require("./_push");
 const logbook = require("./_logbook");
 
 const STORE_NAME = "rainfall-history";
@@ -208,12 +201,9 @@ function assess(snap, warn) {
   // 기상청 특보가 자체 계산보다 높으면 특보를 따른다.
   // 발표된 즉시 반영한다. 발효를 기다리지 않는다 — 미리 대비하는 편이 낫다.
   let kmaLabel = null;
-  let kmaFamily = null;
   if (warn && warn.ok && warn.level_key && RANK[warn.level_key] < RANK[level]) {
     level = warn.level_key;
     kmaLabel = warn.level_label;
-    // rain = 태풍·호우, wind = 강풍. 알림 문구를 가르는 데 쓴다.
-    kmaFamily = warn.level_family || null;
   }
 
   const split = splitWarnings(warn);
@@ -226,7 +216,6 @@ function assess(snap, warn) {
     selfRank: worst ? RANK[worst.risk_key] : RANK.normal,
     elevatedCount,
     label: kmaLabel || (worst && worst.risk_label) || "양호",
-    kmaFamily,
     worstName,
     mm1: worst ? worst.recent_1h_mm : 0,
     mm3: worst ? worst.recent_3h_mm : 0,
@@ -261,13 +250,8 @@ function buildPayload(now, prev, seq) {
     lines.push(line);
     if (now.warnings.length) lines.push("기상특보 " + now.warnings.join(" · "));
   } else if (now.warnings.length) {
-    // 비는 안 오는데 특보로 단계가 올라간 경우 — 왜 알림이 왔는지 한 줄로 밝힌다.
-    //
-    // "관내 강우 없음"은 강우 계열 특보(호우·태풍)일 때만 붙인다.
-    // 그때는 "특보는 났는데 우리 관측망에는 아직 안 잡혔다"는 뜻이라 정보가 된다.
-    // 강풍특보에 강우 유무를 적는 것은 대응과 무관해 줄만 잡아먹는다.
-    const head = now.kmaFamily === "rain" ? "관내 강우 없음 · " : "";
-    lines.push(head + "기상특보 " + now.warnings.join(" · "));
+    // 비는 안 오는데 특보로 단계가 올라간 경우 — 왜 알림이 왔는지 한 줄로 밝힌다
+    lines.push("관내 강우 없음 · 기상특보 " + now.warnings.join(" · "));
   }
 
   // 반복을 멈추는 방법을 알림에 명시한다.
@@ -280,7 +264,6 @@ function buildPayload(now, prev, seq) {
   return {
     title: `영덕군 ${now.label}${counter}`,
     body: lines.join("\n") || "상황을 확인해 주세요.",
-    kind: "강우 단계",
     tag: `yd-rain-alert-${Date.now()}`,
     group: "yd-rain-alert",
     url: "/",
@@ -326,7 +309,7 @@ async function dispatch(now, prev, event) {
   // 알림이 한 통 더 가는 것을 막기 위함이다.
   let justAcked = 0;
   try {
-    const latest = await readSubs(event, { fresh: true });
+    const latest = await readSubs(event);
     const ackedNow = new Set(
       latest.filter((s) => s.ackRank != null && now.rank >= s.ackRank).map((s) => s.endpoint)
     );
@@ -347,20 +330,10 @@ async function dispatch(now, prev, event) {
     groups.get(seq).push(x.sub);
   }
 
-  // 이 주기에 나가는 알림 전체를 한 건으로 묶는 번호.
-  //
-  // 순번(n/15)이 사람마다 달라 sendMany를 여러 번 부르는데, 그때마다
-  // sendMany가 제 번호를 새로 만들면 같은 알림이 여러 건으로 쪼개진다.
-  // 여기서 하나 정해 모든 묶음에 같이 넘긴다.
-  //
-  // 예전에는 이 번호를 아예 돌려주지 않아 logDispatch가 첫 줄에서 빠져나갔고,
-  // 그 결과 제일 많이 나가는 반복 알림만 건별 기록에 남지 않았다.
-  const eid = `강우-${Date.now().toString(36)}`;
-
   const res = { sent: 0, failed: 0, cleaned: 0, errors: [] };
   const delivered = new Set();
   for (const [seq, list] of groups) {
-    const r = await sendMany(list, { ...buildPayload(now, prev, seq), eid }, event);
+    const r = await sendMany(list, buildPayload(now, prev, seq), event);
     (r.okEndpoints || []).forEach((ep) => delivered.add(ep));
     res.sent += r.sent || 0;
     res.failed += r.failed || 0;
@@ -368,26 +341,19 @@ async function dispatch(now, prev, event) {
     if (r.errors && r.errors.length) res.errors.push(...r.errors);
   }
 
-  // 발송 기록 갱신.
-  //
-  // 실제로 보낸 사람의 기록만 개별로 고친다. 예전에는 명단 전체를 다시 쓰는
-  // 바람에, 같은 순간에 다른 사람이 누른 [확인]이 통째로 지워졌다.
-  for (const x of targets) {
-    if (!delivered.has(x.sub.endpoint)) continue;
-    await updateSub(
-      x.sub.endpoint,
-      (s) => {
-        s.sent = { count: (x.rec.count || 0) + 1, at: t, rank: now.rank };
-        // 여기까지 왔다는 건 확인 상태가 아니거나 상황이 더 나빠졌다는 뜻이므로 확인을 푼다
-        delete s.ackRank;
-        delete s.ack;
-        return s;
-      },
-      event
-    );
+  // 발송 기록 갱신 (오래된 상태키는 정리해 용량이 늘지 않게 한다)
+  const fresh = await readSubs(event);
+  for (const s of fresh) {
+    const hit = targets.find((x) => x.sub.endpoint === s.endpoint);
+    if (!hit || !delivered.has(s.endpoint)) continue;
+    s.sent = { count: (hit.rec.count || 0) + 1, at: t, rank: now.rank };
+    // 여기까지 왔다는 건 확인 상태가 아니거나 상황이 더 나빠졌다는 뜻이므로 확인을 푼다
+    delete s.ackRank;
+    delete s.ack;
   }
+  await writeSubs(fresh, event);
 
-  return { ...res, eid, targets: targets.length, just_acked: justAcked, subs: subs.length };
+  return { ...res, targets: targets.length, just_acked: justAcked, subs: subs.length };
 }
 
 // ---------- 특보의 예고와 실행을 나눈다 ----------
@@ -632,7 +598,6 @@ async function dispatchClear(prev, event) {
     subs,
     {
       title: "영덕군 상황 해제",
-      kind: "상황 종료",
       body: `${prev.label} 상황이 종료되었습니다.`,
       tag: `yd-rain-alert-${Date.now()}`,
       group: "yd-rain-alert",
@@ -650,13 +615,14 @@ async function dispatchClear(prev, event) {
   // 그래서 해제를 보낸 시각만 따로 남긴다. 단계가 없으므로 반복 중단에는
   // 쓰이지 않고 건별 확인 집계에만 쓰인다.
   const clearAt = Date.now();
-  await updateAllSubs((s) => {
+  const fresh = await readSubs(event);
+  for (const s of fresh) {
     s.sent = {};
     delete s.ackRank;
     delete s.ack;
     s.clearAt = clearAt;
-    return s;
-  }, event);
+  }
+  await writeSubs(fresh, event);
   return res;
 }
 
@@ -738,13 +704,6 @@ async function runCycle(event, log, round) {
     // 군청이 실제로 몇 초 걸렸는지. 자료가 늦는 원인이 군청인지 우리 주기인지 가른다.
     log.fetch_sec = snap && snap.fetch_elapsed_ms ? Math.round(snap.fetch_elapsed_ms / 1000) : null;
     log.fetched_at = (snap && snap.fetched_at) || null;
-    // 군청 표가 시계보다 몇 시간 뒤처졌나. 우리가 언제 긁었나(snap_age_sec)와 다르다.
-    // 군청이 옛 표를 계속 내주면 snap_age_sec는 정상인데 이 값만 올라간다.
-    log.table_lag_h = snap && snap.table_lag_h != null ? snap.table_lag_h : null;
-    // 분 단위 지연. 며칠 쌓아 군청이 정시 후 몇 분에 채우는지 확인하고
-    // _history.js의 GRACE_MIN을 그에 맞춘다.
-    log.table_lag_min = snap && snap.table_lag_min != null ? snap.table_lag_min : null;
-    if (snap && snap.date_mismatch) log.date_mismatch = true;
 
     if (age >= REFRESH_AFTER_MS) {
       // 수집은 백그라운드에 맡기고 여기서는 기다리지 않는다.
@@ -821,24 +780,6 @@ async function runCycle(event, log, round) {
       );
     }
 
-    // 특보 목록 변동은 반복 알림과 별개로 1회 나간다.
-    //
-    // 예전에는 아래 반복/해제 분기와 하나의 else if 사슬로 묶여 있었다.
-    // 그래서 강풍주의보 반복 알림이 도는 동안 폭염주의보가 경보로 올라도
-    // 그 알림이 막혔고, 다음 주기에는 prev.warnings가 이미 갱신돼 변동으로
-    // 잡히지 않아 영영 오지 않았다.
-    // 알림이 몰리더라도 빠지는 것보다 낫다는 판단으로 독립시켰다.
-    if (warningsChanged) {
-      log.dispatch_warning_change = await dispatchWarningChange(now, prev, event);
-      log.warning_change = true;
-      await logDispatch(
-        log.dispatch_warning_change,
-        "특보 변동",
-        (now.warnings || []).join(" · ") || "특보 변동",
-        event
-      );
-    }
-
     if (active) {
       log.dispatch = await dispatch(now, prev, event);
       await logDispatch(log.dispatch, "강우 단계", now.label || now.level, event);
@@ -846,8 +787,12 @@ async function runCycle(event, log, round) {
       log.dispatch = await dispatchClear(prev, event);
       log.cleared = true;
       await logDispatch(log.dispatch, "상황 종료", "상황 종료", event);
+    } else if (warningsChanged) {
+      log.dispatch = await dispatchWarningChange(now, prev, event);
+      log.warning_change = true;
+      await logDispatch(log.dispatch, "특보 변동", (now.warnings || []).join(" · ") || "특보 변동", event);
     } else {
-      log.dispatch = { skipped: warningsChanged ? "특보 변동만" : "평상시" };
+      log.dispatch = { skipped: "평상시" };
     }
 
     log.pending = (now.pending || []).map((p) => `${p.label} ${p.kind} ${fmtWhen(p.at)}`);
@@ -882,21 +827,12 @@ async function runCycle(event, log, round) {
 
     // 운영 기록 축적 (실패해도 감시·발송에는 영향 없음)
     try {
-      // 한 주기에 여러 알림이 나갈 수 있다(발효·해제예정·특보변동·반복·해제).
-      // 마지막 한 건만 넘기면 발송 수가 적게 집계된다.
-      const sentThisCycle = [
-        log.dispatch_effective,
-        log.dispatch_release_pending,
-        log.dispatch_warning_change,
-        log.dispatch,
-      ].reduce((n, r) => n + ((r && r.sent) || 0), 0);
-
       await logbook.recordWatch(
         {
           snap,
           warn,
           level: now.level,
-          dispatch: { sent: sentThisCycle },
+          dispatch: log.dispatch,
           subscribers: log.subscribers,
           acked: log.acked,
         },

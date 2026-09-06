@@ -7,20 +7,7 @@
 const webpush = require("web-push");
 
 const STORE_NAME = "rainfall-history";
-
-// 구독은 사람마다 키를 따로 쓴다 ("subs/<주소해시>").
-//
-// 예전에는 명단 전체를 배열 하나("push-subscriptions")에 담아두고
-// 발송·확인·정리가 모두 그 배열을 통째로 읽고 고쳐 다시 썼다.
-// 누가 [확인]을 누른 순간에 발송이 겹치면 확인 기록이 통째로 덮여
-// 알림이 다시 울렸다. (그래서 clear_ack 수동 복구가 필요했다)
-//
-// @netlify/blobs 8.x에는 조건부 쓰기(onlyIfMatch)가 없어 CAS로는 못 막는다.
-// 사람마다 키를 나누면 서로 다른 키를 쓰게 되므로 애초에 겹치지 않는다.
-const SUBS_PREFIX = "subs/";
-// 예전 형식. 첫 읽기 때 쪼개서 옮기고 지운다.
 const SUBS_KEY = "push-subscriptions";
-
 // 가장 최근에 보낸 알림 한 건. 알림을 지우지 않고 앱만 연 경우에도
 // "그 알림을 봤다"고 셀 수 있도록 서버가 기억해 둔다.
 const LAST_EVENT_KEY = "push-last-event";
@@ -40,78 +27,6 @@ function blobStore(event) {
   }
 }
 
-// 강한 읽기 저장소. 기본 읽기는 지역 캐시라 최대 60초 묵은 값이 나온다.
-// 확인 상태를 그만큼 늦게 보면 이미 확인한 사람에게 알림이 한 번 더 간다.
-// 환경에 따라 강한 읽기 경로가 막혀 있으므로 실패하면 기본 읽기로 내려간다.
-function strongStore(event) {
-  try {
-    const blobs = require("@netlify/blobs");
-    if (event && event !== "auto" && typeof blobs.connectLambda === "function") {
-      blobs.connectLambda(event);
-    }
-    return blobs.getStore({ name: STORE_NAME, consistency: "strong" });
-  } catch (_) {
-    return null;
-  }
-}
-
-function subKey(endpoint) {
-  const crypto = require("crypto");
-  return (
-    SUBS_PREFIX +
-    crypto.createHash("sha1").update(String(endpoint)).digest("hex").slice(0, 24)
-  );
-}
-
-async function getSubAt(key, event) {
-  const st = strongStore(event);
-  if (st) {
-    try {
-      const v = await st.get(key, { type: "json" });
-      if (v) return v;
-    } catch (_) {}
-  }
-  const s = blobStore(event);
-  if (!s) return null;
-  try {
-    return await s.get(key, { type: "json" });
-  } catch (_) {
-    return null;
-  }
-}
-
-// 한 번의 함수 실행 안에서 명단을 여러 번 읽는다(발송·집계·정리).
-// 매번 전 구독자를 다시 읽으면 요청 수가 몇 배로 뛰므로 잠깐 기억해 둔다.
-// 쓰기가 일어나면 즉시 버린다. 확인 상태를 반드시 최신으로 봐야 하는 곳은
-// readSubs(event, { fresh: true })로 부른다.
-let memo = null;
-const MEMO_MS = 3000;
-function dropMemo() {
-  memo = null;
-}
-
-let migrated = false;
-async function migrateLegacy(event) {
-  if (migrated) return;
-  migrated = true;
-  const s = blobStore(event);
-  if (!s) return;
-  try {
-    const legacy = await s.get(SUBS_KEY, { type: "json" });
-    if (!Array.isArray(legacy) || !legacy.length) return;
-    for (const item of legacy) {
-      if (!item || !item.endpoint) continue;
-      const k = subKey(item.endpoint);
-      let exists = null;
-      try {
-        exists = await s.get(k, { type: "json" });
-      } catch (_) {}
-      if (!exists) await s.setJSON(k, item);
-    }
-    await s.delete(SUBS_KEY);
-  } catch (_) {}
-}
-
 function configured() {
   return !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
 }
@@ -127,101 +42,26 @@ function setupVapid() {
 
 // ---------- 구독 명단 ----------
 
-async function readSubs(event, opts) {
-  const fresh = !!(opts && opts.fresh);
-  if (!fresh && memo && Date.now() - memo.at < MEMO_MS) return memo.list;
-
-  const s = blobStore(event);
-  if (!s) return [];
-  await migrateLegacy(event);
-
-  let keys = [];
+async function readSubs(event) {
+  const store = blobStore(event);
+  if (!store) return [];
   try {
-    const r = await s.list({ prefix: SUBS_PREFIX });
-    keys = ((r && r.blobs) || []).map((b) => b.key);
+    const v = await store.get(SUBS_KEY, { type: "json" });
+    return Array.isArray(v) ? v : [];
   } catch (_) {
-    return memo ? memo.list : [];
-  }
-
-  const items = await Promise.all(keys.map((k) => getSubAt(k, event)));
-  const list = items.filter((v) => v && v.endpoint);
-  memo = { at: Date.now(), list };
-  return list;
-}
-
-/** 한 사람만 저장한다. 다른 사람의 기록에는 손대지 않는다. */
-async function putSub(sub, event) {
-  const s = blobStore(event);
-  if (!s || !sub || !sub.endpoint) return false;
-  try {
-    await s.setJSON(subKey(sub.endpoint), sub);
-    dropMemo();
-    return true;
-  } catch (_) {
-    return false;
+    return [];
   }
 }
 
-/** 한 사람만 지운다. */
-async function deleteSub(endpoint, event) {
-  const s = blobStore(event);
-  if (!s || !endpoint) return false;
-  try {
-    await s.delete(subKey(endpoint));
-    dropMemo();
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
-/**
- * 한 사람을 읽고-고쳐-쓴다. 이 사람의 키만 건드리므로
- * 같은 시각에 다른 사람에게 일어난 변화를 덮어쓰지 않는다.
- * 없는 구독이면 null.
- */
-async function updateSub(endpoint, mutate, event) {
-  if (!endpoint) return null;
-  const cur = await getSubAt(subKey(endpoint), event);
-  if (!cur) return null;
-  const next = (await mutate(cur)) || cur;
-  const ok = await putSub(next, event);
-  return ok ? next : null;
-}
-
-/** 전원을 한 사람씩 고친다(해제 처리, 확인표시 일괄 삭제 등). */
-async function updateAllSubs(mutate, event) {
-  const list = await readSubs(event, { fresh: true });
-  let changed = 0;
-  for (const s0 of list) {
-    const r = await updateSub(s0.endpoint, mutate, event);
-    if (r) changed += 1;
-  }
-  return { changed, total: list.length };
-}
-
-/** 명단 전체 삭제 (점검용 reset). */
-async function clearAllSubs(event) {
-  const list = await readSubs(event, { fresh: true });
-  for (const s0 of list) await deleteSub(s0.endpoint, event);
-  return list.length;
-}
-
-/**
- * 호환용. 목록을 통째로 넘기면 개별 키로 나눠 저장하고,
- * 목록에 없는 사람은 지운다.
- *
- * 통째로 쓰는 방식 자체가 경합의 원인이므로 새 코드에서는 쓰지 말고
- * putSub / updateSub / updateAllSubs를 쓴다.
- */
 async function writeSubs(list, event) {
-  const cur = await readSubs(event, { fresh: true });
-  const keep = new Set((list || []).map((s0) => s0 && s0.endpoint).filter(Boolean));
-  for (const c of cur) {
-    if (!keep.has(c.endpoint)) await deleteSub(c.endpoint, event);
+  const store = blobStore(event);
+  if (!store) return false;
+  try {
+    await store.setJSON(SUBS_KEY, list);
+    return true;
+  } catch (_) {
+    return false;
   }
-  for (const s0 of list || []) await putSub(s0, event);
-  return true;
 }
 
 /**
@@ -231,7 +71,7 @@ async function writeSubs(list, event) {
  */
 async function addSub(sub, label, event, vid) {
   if (!sub || !sub.endpoint) throw new Error("구독 정보 없음");
-  const list = await readSubs(event, { fresh: true });
+  let list = await readSubs(event);
 
   // 같은 기기가 남긴 예전 구독을 지운다.
   //
@@ -241,19 +81,17 @@ async function addSub(sub, label, event, vid) {
   // (앱을 지웠다 다시 깔면 식별자도 새로 생기므로 이 방법으로는 못 잡는다)
   let dropped = 0;
   if (vid) {
-    for (const s0 of list) {
-      if (s0.vid === vid && s0.endpoint !== sub.endpoint) {
-        await deleteSub(s0.endpoint, event);
-        dropped += 1;
-      }
-    }
+    const before = list.length;
+    list = list.filter((s) => !(s.vid === vid && s.endpoint !== sub.endpoint));
+    dropped = before - list.length;
   }
+
+  const idx = list.findIndex((s) => s.endpoint === sub.endpoint);
 
   // 기존 기록을 통째로 이어받는다.
   // 여기서 항목을 새로 만들면 확인 상태(ackRank)나 발송 횟수가 사라져,
   // 앱을 다시 열 때마다 반복 알림이 처음부터 되살아난다.
-  const prev = list.find((s0) => s0.endpoint === sub.endpoint) || {};
-  const isNew = !prev.endpoint;
+  const prev = idx >= 0 ? list[idx] : {};
 
   const entry = {
     ...prev,
@@ -268,15 +106,18 @@ async function addSub(sub, label, event, vid) {
     seen_at: new Date().toISOString(),
   };
 
-  await putSub(entry, event);
-  return { count: list.length - dropped + (isNew ? 1 : 0), isNew, dropped };
+  if (idx >= 0) list[idx] = entry;
+  else list.push(entry);
+
+  await writeSubs(list, event);
+  return { count: list.length, isNew: idx < 0, dropped };
 }
 
 async function removeSub(endpoint, event) {
-  const before = await readSubs(event, { fresh: true });
-  const had = before.some((s0) => s0.endpoint === endpoint);
-  if (had) await deleteSub(endpoint, event);
-  return { removed: had ? 1 : 0, count: before.length - (had ? 1 : 0) };
+  const list = await readSubs(event);
+  const next = list.filter((s) => s.endpoint !== endpoint);
+  if (next.length !== list.length) await writeSubs(next, event);
+  return { removed: list.length - next.length, count: next.length };
 }
 
 // ---------- 발송 ----------
@@ -351,10 +192,11 @@ async function pruneStale(event) {
   if (!list.length) return { removed: 0, count: 0 };
 
   const cut = Date.now() - STALE_DAYS * 24 * 3600 * 1000;
-  const drop = list.filter((s) => seenTime(s) < cut);
-  for (const s of drop) await deleteSub(s.endpoint, event);
+  const keep = list.filter((s) => seenTime(s) >= cut);
+  const removed = list.length - keep.length;
 
-  return { removed: drop.length, count: list.length - drop.length };
+  if (removed) await writeSubs(keep, event);
+  return { removed, count: keep.length };
 }
 
 async function sendMany(targets, payload, event) {
@@ -374,7 +216,10 @@ async function sendMany(targets, payload, event) {
   const results = await Promise.all(targets.map((s) => sendOne(s, payload)));
 
   const gone = targets.filter((_, i) => results[i].gone).map((s) => s.endpoint);
-  for (const ep of gone) await deleteSub(ep, event);
+  if (gone.length) {
+    const list = await readSubs(event);
+    await writeSubs(list.filter((s) => !gone.includes(s.endpoint)), event);
+  }
 
   const sent = results.filter((r) => r.ok).length;
   const okEndpoints = targets.filter((_, i) => results[i].ok).map((s) => s.endpoint);
@@ -396,11 +241,6 @@ module.exports = {
   configured,
   readSubs,
   writeSubs,
-  putSub,
-  deleteSub,
-  updateSub,
-  updateAllSubs,
-  clearAllSubs,
   addSub,
   removeSub,
   sendMany,
@@ -408,5 +248,4 @@ module.exports = {
   setLastEvent,
   getLastEvent,
   SUBS_KEY,
-  SUBS_PREFIX,
 };

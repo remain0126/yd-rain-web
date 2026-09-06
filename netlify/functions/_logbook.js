@@ -268,18 +268,10 @@ async function flushToday(event) {
 async function recordDispatch(eid, meta, sent, event) {
   const day = await readDay(event);
   if (!day.push.events) day.push.events = {};
-  if (!day.push.byType) day.push.byType = {};
 
   // 확인 신호가 발송 기록보다 먼저 도착하는 일이 있다.
   // 그때 만들어진 칸을 지우지 않고, 이미 센 확인 수를 지키며 채운다.
   const prev = day.push.events[eid] || {};
-
-  // 종류별 발송 집계 (강우 단계 / 특보 변동 / 특보 발효 / 해제 예정 / 상황 종료).
-  // 같은 건이 두 번 기록돼도 늘어난 만큼만 더한다.
-  const kind = (meta && meta.kind) || prev.kind || "기타";
-  const added = (Number(sent) || 0) - (prev.sent || 0);
-  if (added > 0) day.push.byType[kind] = (day.push.byType[kind] || 0) + added;
-
   day.push.events[eid] = {
     kind: (meta && meta.kind) || prev.kind || "",
     title: (meta && meta.title) || prev.title || "",
