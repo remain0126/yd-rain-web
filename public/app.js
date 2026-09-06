@@ -420,6 +420,29 @@ function loadLocal() {
 // 재난 화면으로서 산만하다.
 let introDone = false;
 
+// 연출 해제 예약. 다시 걸 때 예전 예약이 남아 있으면 새 연출을 중간에 끊는다.
+let introTimer = null;
+
+// 여는 화면.
+//
+// 로고가 튀어나오는 연출이 460ms다. 그보다 자료가 먼저 도착하면 연출을
+// 중간에 끊지 않고 마치도록 남은 시간을 기다린다. 늦으면 도착한 즉시 걷는다.
+const SPLASH_MIN_MS = 560;
+const splashAt = Date.now();
+let splashGone = false;
+
+function hideSplash() {
+  if (splashGone) return;
+  splashGone = true;
+  const el = document.getElementById("splash");
+  if (!el) return;
+  const wait = Math.max(0, SPLASH_MIN_MS - (Date.now() - splashAt));
+  setTimeout(() => {
+    el.classList.add("splash-out");
+    setTimeout(() => el.remove(), 420);
+  }, wait);
+}
+
 // 그리기 전에 미리 걸어둔다.
 //
 // 카드를 먼저 그린 다음 연출을 붙이면, 완성된 화면이 한 순간 보였다가
@@ -428,8 +451,13 @@ let introDone = false;
 function armIntro() {
   if (introDone) return false;
   introDone = true;
+  clearTimeout(introTimer);
   const el = $("centerStatus");
   if (el) el.classList.add("stage-in");
+  // 부제목은 카드와 달리 다시 만들어지지 않는다. 클래스가 남아 있으면
+  // 다시 걸어도 아무 일이 없으므로, 연출을 걸기 전에 떼어 둔다.
+  const head = document.querySelector(".app-sub");
+  if (head) head.classList.remove("head-in");
   return true;
 }
 
@@ -439,7 +467,8 @@ function finishIntro(armed) {
 
   const el = $("centerStatus");
   // 연출이 끝나면 떼어낸다. 남겨두면 갱신 때마다 카드가 다시 들썩인다.
-  if (el) setTimeout(() => el.classList.remove("stage-in"), 2600);
+  clearTimeout(introTimer);
+  if (el) introTimer = setTimeout(() => el.classList.remove("stage-in"), 2600);
 
   document.querySelectorAll(".center-card.elevated").forEach((c) => {
     c.classList.add("stage-glow");
@@ -569,6 +598,9 @@ function markCachedView(data) {
   if (dot) dot.className = "dot dot-stale";
 }
 
+// 그리기 순번. 미뤄둔 작업이 돌 때 더 새 자료가 이미 그려졌으면 버린다.
+let paintSeq = 0;
+
 function paint(data, opts) {
   const rows = data.rows || {};
   const columns = data.columns || [];
@@ -585,6 +617,29 @@ function paint(data, opts) {
 
   renderCenters(rows);
 
+  // 무거운 작업은 한 프레임 뒤로 미룬다.
+  //
+  // 순위표(17개 읍면 + SVG 막대), 시간대별 표(17개 스파크라인), 차트를
+  // 카드 삽입과 같은 작업 단위에서 이어 하면 브라우저가 첫 프레임을 그리지
+  // 못한다. 그 사이 애니메이션 시계는 흘러가서, 첫 프레임이 나올 때는
+  // 계단 간격(170·310·450ms)이 이미 지나가 있다. 세 장이 한꺼번에 나타난다.
+  // CPU 부하에 따라 이 시간이 달라져 간헐적으로 보였다.
+  //
+  // 순위표와 시간대별 표는 화면을 내려야 보이므로 한 프레임 늦어도 무해하다.
+  const seq = ++paintSeq;
+  // rAF는 다음 그리기 직전에 돌고, 그 안의 setTimeout은 그리기 뒤에 돈다.
+  requestAnimationFrame(() =>
+    setTimeout(() => {
+      if (seq !== paintSeq) return; // 더 새 자료가 이미 그려졌으면 버린다
+      paintRest(rows, columns);
+    }, 0)
+  );
+  hideSplash();
+
+  return paintHead(data, rows, opts);
+}
+
+function paintRest(rows, columns) {
   // 상황실 경보음: 세 센터 중 가장 높은 단계가 직전보다 올라가면 울린다
   try {
     const worstRank = CENTERS.reduce((acc, c) => {
@@ -605,7 +660,9 @@ function paint(data, opts) {
   renderRanking(rows);
   renderDetail(rows, columns);
   watchCharts();
+}
 
+function paintHead(data, rows, opts) {
   // 군청 자료의 날짜에 요일을 붙여 보여준다.
   // 자정을 넘겨도 자료의 날짜를 따라가므로 화면과 숫자가 어긋나지 않는다.
   const dm = String(data.date_label || "").match(/(\d{4})-(\d{2})-(\d{2})/);
@@ -741,6 +798,7 @@ async function load(force) {
       finishIntro(armed);
       markCachedView(local);
     } else {
+      hideSplash();
       $("updatedAt").textContent = "자료 수신 대기 중 · 잠시 후 자동 갱신";
       $("connDot").className = "dot dot-stale";
       scheduleRetry(25000);
@@ -752,7 +810,12 @@ async function load(force) {
 }
 
 // 새로고침 버튼 = 강제 최신(fresh), 자동/최초 = 캐시 허용
-$("refreshBtn").addEventListener("click", () => load(true));
+// 새로고침 버튼은 사용자가 직접 누른 것이므로 연출을 다시 보여준다.
+// 1분 자동 갱신은 같은 load()를 부르지만 introDone을 풀지 않아 조용히 바뀐다.
+$("refreshBtn").addEventListener("click", () => {
+  introDone = false;
+  load(true);
+});
 
 // 재방문이면 저장된 직전 데이터를 먼저 즉시 그려서 체감 속도 향상,
 // 그 뒤 백그라운드로 최신 데이터를 받아 교체
@@ -801,6 +864,8 @@ document.addEventListener("visibilitychange", () => {
     clearInterval(refreshTimer);
     refreshTimer = null;
   } else if (!refreshTimer) {
+    // 화면으로 돌아왔다 = 다시 접속했다. 연출을 되살린다.
+    introDone = false;
     // 화면으로 돌아온 즉시 확인 처리한다. 자료 갱신을 기다리면
     // 그 사이 발송이 한 번 더 나갈 수 있다.
     if (typeof ackCurrent === "function" && curRank != null) ackCurrent(curRank);

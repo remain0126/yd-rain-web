@@ -945,3 +945,59 @@ details[open] .chev { transform: rotate(180deg); }
 @keyframes fadeIn {
   from { opacity: 0; }
 }
+
+/* ---------- 여는 화면 ---------- */
+
+/* 로고가 앞으로 튀어나온다. 작게 시작해 빠르게 커지며 살짝 지나쳤다가
+   제자리에 앉는다. 자료가 준비되면 계속 커지며 사라져, 로고를 통과해
+   본 화면으로 들어가는 것처럼 보인다.
+
+   프레임은 두지 않는다. 배경색 위에 로고만 놓는다.
+   합성 전용 속성(transform·opacity)만 움직여 저사양 기기에서도
+   프레임이 끊기지 않게 한다. */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+}
+
+.splash-logo {
+  width: min(46vw, 200px);
+  height: auto;
+  transform-origin: 50% 50%;
+  animation: logoPop 460ms cubic-bezier(0.16, 1.06, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+@keyframes logoPop {
+  0% { opacity: 0; transform: scale3d(0.42, 0.42, 1); }
+  55% { opacity: 1; transform: scale3d(1.07, 1.07, 1); }
+  100% { opacity: 1; transform: scale3d(1, 1, 1); }
+}
+
+/* 자료가 준비되면 걸리는 상태 */
+.splash.splash-out {
+  animation: splashFade 380ms ease-in both;
+  pointer-events: none;
+}
+.splash.splash-out .splash-logo {
+  animation: logoThrough 380ms cubic-bezier(0.5, 0, 0.75, 0) both;
+}
+
+@keyframes splashFade {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes logoThrough {
+  0% { transform: scale3d(1, 1, 1); }
+  100% { transform: scale3d(2.4, 2.4, 1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-logo { animation: none; }
+  .splash.splash-out { animation: none; opacity: 0; }
+}
