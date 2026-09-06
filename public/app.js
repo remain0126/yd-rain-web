@@ -420,18 +420,6 @@ function loadLocal() {
 // 재난 화면으로서 산만하다.
 let introDone = false;
 
-// 오래 가려져 있다가 돌아오면 연출을 한 번 더 허용한다.
-//
-// 홈화면 아이콘으로 앱을 열면 안드로이드는 예전 화면을 그대로 되살린다.
-// 문서가 새로 열리지 않으므로 introDone이 지난번 방문 때 이미 true다.
-// 사용자에게는 "앱을 새로 연 것"인데 진입 연출이 돌지 않는다.
-// (PC에서 새로고침하면 문서가 새로 열려 돌아간다 — 그래서 PC에서만 보였다)
-//
-// 1분 갱신이나 잠깐 다른 앱을 봤다 오는 경우에는 돌지 않아야 한다.
-// 카드가 들썩이면 숫자를 읽기 어렵다.
-const INTRO_REPLAY_MS = 5 * 60 * 1000;
-let hiddenAt = 0;
-
 // 그리기 전에 미리 걸어둔다.
 //
 // 카드를 먼저 그린 다음 연출을 붙이면, 완성된 화면이 한 순간 보였다가
@@ -442,35 +430,15 @@ function armIntro() {
   introDone = true;
   const el = $("centerStatus");
   if (el) el.classList.add("stage-in");
-  // 부제목은 카드와 달리 다시 만들어지지 않는다. 클래스가 남아 있으면
-  // 다시 걸어도 아무 일이 없으므로, 연출을 걸기 전에 떼어 둔다.
-  const head = document.querySelector(".app-sub");
-  if (head) head.classList.remove("head-in");
   return true;
 }
 
-// 카드를 그린 직후에 부른다.
-//
-// cachedView면 아직 끝이 아니다. 저장된 화면을 먼저 그린 것이고 실제 자료가
-// 뒤따라와 카드를 다시 만든다. 그때 연출이 다시 붙어야 하므로 stage-in을
-// 남겨두고 introDone도 세우지 않는다.
-//
-// 예전에는 stage-in을 이 함수가 불린 시점부터 2600ms 뒤에 시계로 떼었다.
-// 저장 화면이 700ms에 그려지면 3300ms에 떼이는데, 실제 자료가 그 뒤에
-// 도착하면 카드가 채 움직이기도 전에 클래스가 사라져 연출이 통째로 빠졌다.
-// /api/rainfall은 기상청 특보를 다시 받느라 1~3.5초를 오가므로,
-// 모바일에서 이 경계를 넘나들며 연출이 나왔다 안 나왔다 했다.
-function finishIntro(armed, cachedView) {
+// 카드를 그린 직후에 부른다
+function finishIntro(armed) {
   if (!armed) return;
 
   const el = $("centerStatus");
-  if (cachedView) {
-    introDone = false;   // 실제 자료가 오면 한 번 더 걸 수 있게 둔다
-    return;
-  }
-
-  // 실제 자료로 그렸으니 이제 끝이다.
-  // 남겨두면 1분마다 갱신될 때마다 카드가 다시 들썩인다.
+  // 연출이 끝나면 떼어낸다. 남겨두면 갱신 때마다 카드가 다시 들썩인다.
   if (el) setTimeout(() => el.classList.remove("stage-in"), 2600);
 
   document.querySelectorAll(".center-card.elevated").forEach((c) => {
@@ -682,11 +650,6 @@ function paint(data, opts) {
 
   // 항상 "자료기준 · 확인" 형식으로 표시 (실패/지연 문구 없이 신뢰성 유지).
   // 점 색: 확인 시점과 자료기준이 크게 벌어지면(20분 초과) 주황으로만 '오래됨'을 은근히 표시.
-  //
-  // 군청 표가 몇 시간 뒤처졌는지(table_lag_h)는 화면에 적지 않는다.
-  // 결측이 생기면 센터 카드의 "일부결측"으로 이미 드러나고,
-  // 상태 띠에 문구를 하나 더 붙이면 평상시에도 시선을 뺏는다.
-  // 점검이 필요하면 /api/diag 와 /api/watch 로그에서 확인한다.
   $("updatedAt").innerHTML =
     `자료기준 <b>${dataStamp}</b> · 확인 <b>${nowTime}</b>`;
 
@@ -760,7 +723,7 @@ async function load(force) {
     clearTimeout(cachedTimer);
     const armed = armIntro();
     paint(data, { cachedView: false });
-    finishIntro(armed, false);
+    finishIntro(armed);
     // 순위표는 화면에 들어올 때 따로 돈다. 첫 진입 연출과 별개다.
     watchRanking();
     saveLocal(data);
@@ -775,7 +738,7 @@ async function load(force) {
       clearTimeout(cachedTimer);
       const armed = armIntro();
       paint(local, { cachedView: true });
-      finishIntro(armed, true);
+      finishIntro(armed);
       markCachedView(local);
     } else {
       $("updatedAt").textContent = "자료 수신 대기 중 · 잠시 후 자동 갱신";
@@ -807,7 +770,7 @@ if (cached) {
     if (firstPaintDone) return;
     const armed = armIntro();
     paint(cached, { cachedView: true });
-    finishIntro(armed, true);
+    finishIntro(armed);
     markCachedView(cached);
   }, 700);
 }
@@ -835,13 +798,9 @@ async function ackOnOpen() {
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
-    hiddenAt = Date.now();
     clearInterval(refreshTimer);
     refreshTimer = null;
   } else if (!refreshTimer) {
-    // 오래 비운 뒤 돌아왔으면 새로 연 것으로 보고 진입 연출을 되살린다
-    if (hiddenAt && Date.now() - hiddenAt > INTRO_REPLAY_MS) introDone = false;
-    hiddenAt = 0;
     // 화면으로 돌아온 즉시 확인 처리한다. 자료 갱신을 기다리면
     // 그 사이 발송이 한 번 더 나갈 수 있다.
     if (typeof ackCurrent === "function" && curRank != null) ackCurrent(curRank);

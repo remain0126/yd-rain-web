@@ -170,26 +170,7 @@ html, body {
   border-radius: 10px;
   border: 1px solid var(--critical);
   background: color-mix(in srgb, var(--critical) 14%, transparent);
-  position: relative;
-}
-
-/* 맥동은 테두리를 덧그린 가상요소를 키우고 흐리게 해서 만든다.
-   box-shadow를 애니메이션하면 매 프레임 다시 그려야 하고, 이 배너는
-   알림을 켜지 않은 동안 계속 떠 있어 그 부담이 끊이지 않는다.
-   transform과 opacity는 GPU가 처리한다. */
-.push-banner::after {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  border: 1px solid var(--critical);
-  pointer-events: none;
-  animation: pbRing 2.2s ease-in-out infinite;
-}
-
-@keyframes pbRing {
-  0%, 100% { opacity: 0.55; transform: scale(1); }
-  50% { opacity: 0; transform: scale(1.035); }
+  animation: pbPulse 2.2s ease-in-out infinite;
 }
 .pb-text {
   flex: 1;
@@ -213,15 +194,16 @@ html, body {
 .pb-btn:active { transform: scale(0.96); }
 /* 자동으로 사라지는 안내는 깜빡였다가 흐려진다 */
 .push-banner.pb-flash { animation: pbBlink 0.8s ease-in-out infinite; }
-/* 깜빡임 중에는 맥동을 멈춘다. 두 움직임이 겹치면 산만하다. */
-.push-banner.pb-flash::after { animation: none; opacity: 0; }
 .push-banner.pb-out { opacity: 0; transition: opacity 0.4s ease; }
 @keyframes pbBlink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.25; }
 }
 
-
+@keyframes pbPulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--critical) 40%, transparent); }
+  50% { box-shadow: 0 0 0 6px transparent; }
+}
 
 .push-note {
   margin-top: 10px;
@@ -662,17 +644,13 @@ details[open] .chev { transform: rotate(180deg); }
   z-index: 2;
   pointer-events: none;
   transform: translateX(-130%);
-  /* mix-blend-mode를 쓰지 않는다.
-     블렌드가 걸리면 브라우저가 매 프레임 아래 배경을 읽어와 섞느라
-     GPU 합성에서 빠지고, 카드 세 장이 동시에 지나가는 진입 구간에서
-     프레임이 끊긴다. 어두운 바탕에서는 screen과 일반 합성의 결과가
-     비슷하므로 심의 밝기만 조금 낮춰 맞췄다. */
+  mix-blend-mode: screen;
   background: linear-gradient(
     100deg,
     transparent 22%,
-    rgba(255, 255, 255, 0.05) 38%,
-    rgba(255, 255, 255, 0.30) 50%,
-    rgba(255, 255, 255, 0.05) 62%,
+    rgba(255, 255, 255, 0.06) 38%,
+    rgba(255, 255, 255, 0.38) 50%,
+    rgba(255, 255, 255, 0.06) 62%,
     transparent 78%
   );
 }
