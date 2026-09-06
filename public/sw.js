@@ -1,6 +1,6 @@
 // service worker: 앱 셸(정적 파일)만 캐시. 강우 데이터(/api/rainfall)는
 // 항상 네트워크에서 최신으로 받아온다 (재난 대응 특성상 실시간이 중요).
-const CACHE = "yd-rain-v40";
+const CACHE = "yd-rain-v41";
 const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/logo.png", "/logo.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -87,6 +87,37 @@ self.addEventListener("push", (e) => {
 });
 
 // 알림을 누르면 앱을 열거나, 이미 열려 있으면 그 창으로 이동한다.
+// 확인 전송. 누르기/지우기/밀어내기가 모두 이 경로를 쓴다.
+function ackFromSW(data) {
+  return self.registration.pushManager
+    .getSubscription()
+    .then((sub) => {
+      if (!sub) return;
+      return fetch("/api/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "ack",
+          endpoint: sub.endpoint,
+          key: data.key,
+          rank: data.rank,
+        }),
+      });
+    })
+    .catch(() => {});
+}
+
+// 알림을 지우거나 오른쪽으로 밀어내도 "봤다"로 처리한다.
+//
+// 알림을 치웠다는 것은 내용을 봤다는 뜻이다. 그런데도 누르지 않았다고
+// 계속 보내면, 상황을 이미 아는 사람에게 10분마다 알림이 쌓인다.
+//
+// 서버의 확인 처리는 같은 값을 두 번 받아도 문제가 없으므로,
+// 본문을 눌러 닫히는 경우와 겹쳐도 무해하다.
+self.addEventListener("notificationclose", (e) => {
+  e.waitUntil(ackFromSW(e.notification.data || {}));
+});
+
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const data = e.notification.data || {};
@@ -94,23 +125,7 @@ self.addEventListener("notificationclick", (e) => {
 
   // 확인 처리. 버튼을 누르든 본문을 누르든 "봤다"로 간주한다.
   // 버튼만 인정하면 알림을 확인하고도 계속 울리는 일이 생긴다.
-  const sendAck = () =>
-    self.registration.pushManager
-      .getSubscription()
-      .then((sub) => {
-        if (!sub) return;
-        return fetch("/api/push", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "ack",
-            endpoint: sub.endpoint,
-            key: data.key,
-            rank: data.rank,
-          }),
-        });
-      })
-      .catch(() => {});
+  const sendAck = () => ackFromSW(data);
 
   // 확인 버튼: 앱은 열지 않는다
   if (e.action === "ack") {
