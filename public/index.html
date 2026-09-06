@@ -14,6 +14,25 @@
 <link rel="stylesheet" media="print" onload="this.media='all'"
   href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
 <link rel="stylesheet" href="/style.css" />
+<script>
+  /* 여는 화면의 시작 크기를 기기마다 계산한다.
+
+     안드로이드가 앱 실행 순간 띄우는 화면(OS 스플래시)은 로고를 화면
+     폭의 9.7% 로 그린다. 실제 기기 스크린샷을 픽셀로 재서 얻은 값이다.
+     우리 HTML 스플래시 로고는 176px 고정이므로, 그 9.7% 와 같은 크기에서
+     출발해야 두 화면이 이어져 보인다.
+
+     비율로 계산하는 것이 요점이다. 물리 픽셀로 계산하면 기기마다 다른
+     DPR 을 알아내야 하는데, 화면 폭 대비 비율은 DPR 이 약분되어 사라진다.
+     360dp 기기에서 0.199, 412dp 에서도 같은 0.199 가 나온다. */
+  (function () {
+    var OS_LOGO_RATIO = 0.097;   /* OS 스플래시 로고 폭 / 화면 폭 */
+    var HTML_LOGO_PX  = 176;     /* .splash-logo 의 고정 폭 */
+    var target = window.innerWidth * OS_LOGO_RATIO;
+    var s = Math.min(0.6, Math.max(0.15, target / HTML_LOGO_PX));
+    document.documentElement.style.setProperty('--splash-start', s.toFixed(3));
+  })();
+</script>
 </head>
 <body>
   <div class="app">
