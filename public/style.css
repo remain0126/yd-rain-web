@@ -962,10 +962,14 @@ details[open] .chev { transform: rotate(180deg); }
   display: grid;
   place-items: center;
   background: var(--bg);
+  will-change: opacity;
 }
 
 .splash-logo {
-  width: min(46vw, 200px);
+  /* 원본 logo.png 가 372px 폭이다. 표시 폭을 그 절반 아래로 두면
+     확대(scale 1.07)와 통과 연출(scale 1.9)에서도 원본 해상도를
+     넘지 않아 흐려지지 않는다. */
+  width: min(44vw, 176px);
   height: auto;
   transform-origin: 50% 50%;
   animation: logoPop 460ms cubic-bezier(0.16, 1.06, 0.3, 1) both;
@@ -994,7 +998,7 @@ details[open] .chev { transform: rotate(180deg); }
 
 @keyframes logoThrough {
   0% { transform: scale3d(1, 1, 1); }
-  100% { transform: scale3d(2.4, 2.4, 1); }
+  100% { transform: scale3d(1.9, 1.9, 1); }
 }
 
 @media (prefers-reduced-motion: reduce) {

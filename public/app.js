@@ -182,6 +182,22 @@ function renderCenters(rows) {
         </div>`;
     })
     .join("");
+
+  // 계단 간격을 카드마다 직접 박는다.
+  //
+  // CSS의 :nth-child 로 주던 간격(170·310·450ms)은 두 가지 문제가 있었다.
+  // 하나는 140ms 간격에 움직임이 800ms 라 서로 크게 겹쳐 한 번에
+  // 들어오는 것처럼 보인 것이고, 다른 하나는 컨테이너에 stage-in 이
+  // 언제 붙었는지, 자식이 몇 번째인지에 결과가 매달려 있던 것이다.
+  //
+  // 여기서 직접 지정하면 카드가 만들어지는 순간 확정되고, 간격도
+  // 눈에 보이게 벌릴 수 있다.
+  if (el.classList.contains("stage-in")) {
+    const kids = el.children;
+    for (let i = 0; i < kids.length; i++) {
+      kids[i].style.animation = `slideSettle 760ms linear ${120 + i * 230}ms backwards`;
+    }
+  }
 }
 
 // ---------- Ranking ----------
