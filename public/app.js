@@ -420,6 +420,18 @@ function loadLocal() {
 // 재난 화면으로서 산만하다.
 let introDone = false;
 
+// 오래 가려져 있다가 돌아오면 연출을 한 번 더 허용한다.
+//
+// 홈화면 아이콘으로 앱을 열면 안드로이드는 예전 화면을 그대로 되살린다.
+// 문서가 새로 열리지 않으므로 introDone이 지난번 방문 때 이미 true다.
+// 사용자에게는 "앱을 새로 연 것"인데 진입 연출이 돌지 않는다.
+// (PC에서 새로고침하면 문서가 새로 열려 돌아간다 — 그래서 PC에서만 보였다)
+//
+// 1분 갱신이나 잠깐 다른 앱을 봤다 오는 경우에는 돌지 않아야 한다.
+// 카드가 들썩이면 숫자를 읽기 어렵다.
+const INTRO_REPLAY_MS = 5 * 60 * 1000;
+let hiddenAt = 0;
+
 // 그리기 전에 미리 걸어둔다.
 //
 // 카드를 먼저 그린 다음 연출을 붙이면, 완성된 화면이 한 순간 보였다가
@@ -430,6 +442,10 @@ function armIntro() {
   introDone = true;
   const el = $("centerStatus");
   if (el) el.classList.add("stage-in");
+  // 부제목은 카드와 달리 다시 만들어지지 않는다. 클래스가 남아 있으면
+  // 다시 걸어도 아무 일이 없으므로, 연출을 걸기 전에 떼어 둔다.
+  const head = document.querySelector(".app-sub");
+  if (head) head.classList.remove("head-in");
   return true;
 }
 
@@ -803,9 +819,13 @@ async function ackOnOpen() {
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
+    hiddenAt = Date.now();
     clearInterval(refreshTimer);
     refreshTimer = null;
   } else if (!refreshTimer) {
+    // 오래 비운 뒤 돌아왔으면 새로 연 것으로 보고 진입 연출을 되살린다
+    if (hiddenAt && Date.now() - hiddenAt > INTRO_REPLAY_MS) introDone = false;
+    hiddenAt = 0;
     // 화면으로 돌아온 즉시 확인 처리한다. 자료 갱신을 기다리면
     // 그 사이 발송이 한 번 더 나갈 수 있다.
     if (typeof ackCurrent === "function" && curRank != null) ackCurrent(curRank);
