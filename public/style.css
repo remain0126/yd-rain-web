@@ -5,7 +5,9 @@
   --critical: #FF0033;
   --unknown: #64748b;
 
-  --bg: #0a0f16;
+  /* 순수 검정. 안드로이드 스플래시 배경(manifest 의 background_color)과
+     같은 값으로 맞춰, 여는 화면에서 본 화면으로 넘어갈 때 색이 튀지 않게 한다. */
+  --bg: #000000;
   --surface: #121a26;
   --surface-2: #0e1520;
   --border: #1f2c3d;
@@ -988,15 +990,24 @@ details[open] .chev { transform: rotate(180deg); }
   width: 176px;
   height: 153px;
   transform-origin: 50% 50%;
-  animation: logoGrow 520ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation: logoGrow 620ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
   will-change: transform, opacity;
   backface-visibility: hidden;
 }
 
-/* 튕김 없이 한 방향으로만 커진다 */
+/* 안드로이드가 앱 실행 순간 띄우는 화면(OS 스플래시)에서 이어받는다.
+   그 화면은 운영체제가 만들고 우리 HTML 이 로드되기 전에 뜨므로
+   막을 수 없다. 대신 두 화면을 같게 보이게 해서 경계를 없앤다.
+
+   - 배경: manifest 의 background_color 와 --bg 를 둘 다 #000000 으로 맞췄다
+   - 로고: OS 스플래시는 아이콘을 화면 짧은변의 1/4 쯤으로 띄운다.
+     화면폭 360~440px 이면 아이콘이 90~110px 이고, 그 안에 로고가
+     82% 로 들어가니 실제 로고는 74~90px 이다.
+     여기서 176 x 0.48 = 84px 로 시작하면 그 크기와 겹친다.
+     화면이 바뀌는 것이 아니라 정지해 있던 로고가 움직이기 시작한
+     것처럼 보인다. 투명도도 처음부터 1 이라 깜빡임이 없다. */
 @keyframes logoGrow {
-  0% { opacity: 0; transform: scale3d(0.72, 0.72, 1); }
-  40% { opacity: 1; }
+  0% { opacity: 1; transform: scale3d(0.48, 0.48, 1); }
   100% { opacity: 1; transform: scale3d(1, 1, 1); }
 }
 
