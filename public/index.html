@@ -17,12 +17,16 @@
 </head>
 <body>
   <div class="app">
-    <!-- 여는 화면. 로고가 앞으로 튀어나온 뒤, 자료가 준비되면 화면을
-         통과하며 사라진다. 프레임 없이 배경색 위에 로고만 둔다. -->
+    <!-- 여는 화면. 로고가 정중앙에서 부드럽게 커진 뒤, 자료가 준비되면
+         화면을 통과하며 사라진다. 프레임 없이 배경색 위에 로고만 둔다. -->
     <div id="splash" class="splash" aria-hidden="true">
-      <!-- SVG가 아니라 PNG를 쓴다. SVG는 확대할 때마다 매 프레임 다시
+      <!-- 자리는 겉이, 커지는 것은 안이 맡는다. 한 요소에서 둘을 같이
+           하면 한쪽만 고쳐도 다른 쪽이 어긋난다.
+           SVG 가 아니라 PNG 를 쓴다. SVG 는 확대할 때마다 매 프레임 다시
            래스터화하므로 저사양 기기에서 움직임이 끊긴다. -->
-      <img class="splash-logo" src="/logo.png" alt="" width="200" height="174" decoding="sync" />
+      <div class="splash-inner">
+        <img class="splash-logo" src="/logo.png" alt="" width="176" height="153" decoding="sync" />
+      </div>
     </div>
 
     <header class="app-bar">
