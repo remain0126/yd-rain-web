@@ -66,9 +66,8 @@ exports.handler = async function (event) {
       if (need && body.token !== need) {
         return reply(401, { ok: false, error: "인증 실패" });
       }
-      const { writeSubs, readSubs } = require("./_push");
-      const before = (await readSubs(event)).length;
-      await writeSubs([], event);
+      const { clearAllSubs } = require("./_push");
+      const before = await clearAllSubs(event);
       return reply(200, { ok: true, cleared: before });
     }
 
@@ -82,22 +81,15 @@ exports.handler = async function (event) {
       if (need && body.token !== need) {
         return reply(401, { ok: false, error: "인증 실패" });
       }
-      const { writeSubs } = require("./_push");
-      const list = await readSubs(event);
+      const { updateAllSubs } = require("./_push");
       let cleared = 0;
-      for (const s of list) {
+      const r = await updateAllSubs((s) => {
         if (s.ackRank != null) cleared += 1;
         delete s.ackRank;
         delete s.ack;
-      }
-      const saved = await writeSubs(list, event);
-      return reply(200, {
-        ok: true,
-        cleared,
-        total: list.length,
-        saved,
-        ack_ranks: list.map((s) => (s.ackRank == null ? "-" : s.ackRank)).join(","),
-      });
+        return s;
+      }, event);
+      return reply(200, { ok: true, cleared, total: r.total, saved: r.changed });
     }
 
     if (body.action === "unsubscribe") {
@@ -113,10 +105,12 @@ exports.handler = async function (event) {
     //   - 알림을 지움(밀어서 없앰)
     //   - 알림을 받은 뒤 앱을 그냥 연 경우 (action: "ack_open")
     if (body.action === "ack" || body.action === "ack_open") {
-      const { readSubs, writeSubs } = require("./_push");
+      const { updateSub, readSubs } = require("./_push");
       const logbook = require("./_logbook");
 
-      const list = await readSubs(event);
+      // 확인은 누른 본인의 기록만 고친다. 예전에는 명단 전체를 다시 써서,
+      // 같은 순간에 나간 발송이 이 확인을 덮어버리곤 했다.
+      const list = await readSubs(event, { fresh: true });
       const s = list.find((x) => x.endpoint === body.endpoint);
       if (!s) return reply(404, { ok: false, error: "등록되지 않은 구독" });
 
@@ -176,7 +170,7 @@ exports.handler = async function (event) {
       s.ackAt = new Date().toISOString();
       // 앱이 살아 있음을 알린다. 오래 조용한 구독을 정리하는 기준이 된다.
       s.seen_at = s.ackAt;
-      s.ackCount = (s.ackCount || 0) + 1;
+      // ackCount는 저장 시점에 저장된 값을 기준으로 올린다(아래 updateSub)
 
       // 이 기기가 이미 확인한 건은 다시 세지 않는다.
       // 목록이 무한정 길어지지 않도록 최근 50건만 들고 있는다.
@@ -190,7 +184,19 @@ exports.handler = async function (event) {
       s.ackEids = Array.from(done).slice(-50);
       s.ackEid = counted.length ? counted[counted.length - 1] : s.ackEid;
 
-      const okWrite = await writeSubs(list, event);
+      const okWrite = !!(await updateSub(
+        body.endpoint,
+        (cur) => ({
+          ...cur,
+          ackRank: s.ackRank,
+          ackAt: s.ackAt,
+          seen_at: s.seen_at,
+          ackCount: (cur.ackCount || 0) + 1,
+          ackEids: s.ackEids,
+          ackEid: s.ackEid,
+        }),
+        event
+      ));
       for (const t of counted) {
         try {
           await logbook.recordAck(t, event);
@@ -205,7 +211,7 @@ exports.handler = async function (event) {
         rank_given: hasRank,
         ackRank: s.ackRank == null ? null : s.ackRank,
         saved: okWrite,
-        ackCount: s.ackCount,
+        ackCount: (s.ackCount || 0) + 1,
       });
     }
 

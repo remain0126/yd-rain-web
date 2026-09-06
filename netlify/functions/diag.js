@@ -57,6 +57,14 @@ exports.handler = async function (event) {
 
   const blobs = await testBlobs(event);
 
+  // 워치독이 남긴 최근 점검 결과. 감시가 돌고 있는지, 군청 표가 멈췄는지.
+  let health = null;
+  try {
+    const b = require("@netlify/blobs");
+    if (event && typeof b.connectLambda === "function") b.connectLambda(event);
+    health = await b.getStore("rainfall-history").get("health", { type: "json" });
+  } catch (_) {}
+
   return {
     statusCode: 200,
     headers: {
@@ -64,6 +72,10 @@ exports.handler = async function (event) {
       "Access-Control-Allow-Origin": "*",
       "Cache-Control": "no-store",
     },
-    body: JSON.stringify({ checked_at: new Date().toISOString(), fetch: results, blobs }, null, 2),
+    body: JSON.stringify(
+      { checked_at: new Date().toISOString(), fetch: results, blobs, health },
+      null,
+      2
+    ),
   };
 };

@@ -39,6 +39,13 @@ async function buildData(persist = true, event = null, timeoutMs) {
     // 이력이 부족해 창이 불완전한 경우(도입 초기 등) 화면에 알릴 수 있도록 표시
     row.window_complete_3h = w.complete3 !== false;
     row.window_complete_12h = w.complete12 !== false;
+    row.missing_3h = w.missing3 ?? 0;
+    row.missing_12h = w.missing12 ?? 0;
+    // 군청 표가 시계보다 얼마나 뒤처졌나. 0이면 정상.
+    // 분 단위는 정시 직후의 짧은 지연을 재려는 것이고, GRACE_MIN을
+    // 실측에 맞출 근거가 된다.
+    row.data_lag_h = w.lagHours ?? null;
+    row.data_lag_min = w.lagMin ?? null;
 
     row.risk_key = tier.key;
     row.risk_label = tier.label;
@@ -48,6 +55,25 @@ async function buildData(persist = true, event = null, timeoutMs) {
 
   data.tiers = tiersForClient();
   data.normal = NORMAL;
+
+  // 표 정체 요약. 지점 중 가장 심한 값을 대표로 삼는다.
+  // 화면이 "자료 정체 N시간"을 띄우는 근거이고, 감시 로그에도 남는다.
+  {
+    const lags = Object.values(data.rows)
+      .map((r) => r.data_lag_h)
+      .filter((v) => Number.isFinite(v));
+    data.table_lag_h = lags.length ? Math.max(...lags) : null;
+    const lagsMin = Object.values(data.rows)
+      .map((r) => r.data_lag_min)
+      .filter((v) => Number.isFinite(v));
+    data.table_lag_min = lagsMin.length ? Math.max(...lagsMin) : null;
+    // 군청 표의 날짜가 한국시각 오늘과 다르면 표 자체가 하루 묵은 것이다.
+    const k = new Date(Date.now() + 9 * 3600 * 1000);
+    const p2 = (n) => String(n).padStart(2, "0");
+    const kstToday = `${k.getUTCFullYear()}-${p2(k.getUTCMonth() + 1)}-${p2(k.getUTCDate())}`;
+    const m = String(data.date_label || "").match(/(\d{4}-\d{2}-\d{2})/);
+    data.date_mismatch = !!(m && m[1] !== kstToday);
+  }
 
   // 기상청 특보(영덕군)는 강우 판정과 독립적으로 덧붙인다.
   // 여기서 실패하더라도 강우 자료 자체에는 영향이 없어야 한다.
