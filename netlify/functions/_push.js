@@ -27,6 +27,26 @@ function blobStore(event) {
   }
 }
 
+// 강한 읽기 저장소.
+//
+// 기본 읽기는 지역 캐시라 최대 60초 묵은 값이 나온다. 확인 상태를 그만큼
+// 늦게 보면, 이미 확인한 사람에게 알림이 한 번 더 나간다. 발송은 1분마다
+// 돌기 때문에 이 60초가 그대로 겹친다.
+//
+// 환경에 따라 강한 읽기 경로가 막혀 있을 수 있어, 실패하면 기본 읽기로
+// 내려간다. watch.js 의 readLatest 에 이미 쓰고 있는 방식과 같다.
+function strongStore(event) {
+  try {
+    const blobs = require("@netlify/blobs");
+    if (event && event !== "auto" && typeof blobs.connectLambda === "function") {
+      blobs.connectLambda(event);
+    }
+    return blobs.getStore({ name: STORE_NAME, consistency: "strong" });
+  } catch (_) {
+    return null;
+  }
+}
+
 function configured() {
   return !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
 }
@@ -43,6 +63,14 @@ function setupVapid() {
 // ---------- 구독 명단 ----------
 
 async function readSubs(event) {
+  // 확인 상태는 반드시 최신을 봐야 하므로 강한 읽기를 먼저 시도한다.
+  const strong = strongStore(event);
+  if (strong) {
+    try {
+      const v = await strong.get(SUBS_KEY, { type: "json" });
+      if (Array.isArray(v)) return v;
+    } catch (_) {}
+  }
   const store = blobStore(event);
   if (!store) return [];
   try {
