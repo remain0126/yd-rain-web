@@ -100,13 +100,25 @@ function rainStore(event) {
   }
 }
 
-// 발송 결과를 건별 기록에 남긴다.
+// 발송 결과를 건별 기록으로 모은다.
 // 번호는 sendMany가 붙여 결과에 담아 돌려준다.
-async function logDispatch(result, kind, title, event) {
+//
+// 예전에는 여기서 곧바로 저장했다. 그런데 감시 1회 안에서 이 저장과
+// recordWatch 의 저장이 잇달아 일어나면서, 뒤엣것이 앞엣것을 통째로
+// 덮어썼다. 저장소가 방금 쓴 값을 곧바로 돌려주지 않기 때문이다.
+// 그래서 events 는 늘 비어 있었고, 확인 집계도 대상이 없어 0 이었다.
+// 이제 여기서는 모으기만 하고, 저장은 recordWatch 가 한 번에 한다.
+//
+// warnings 는 기상현상별 집계용이다. 알림에 걸린 특보 이름을 넘긴다.
+function logDispatch(bag, result, kind, title, warnings) {
   if (!result || !result.eid) return;
-  try {
-    await logbook.recordDispatch(result.eid, { kind, title: title || kind }, result.sent || 0, event);
-  } catch (_) {}
+  bag.push({
+    eid: result.eid,
+    kind,
+    title: title || kind,
+    sent: result.sent || 0,
+    warnings: warnings || [],
+  });
 }
 
 // ---------- 백그라운드 수집 요청 ----------
@@ -680,6 +692,9 @@ exports.handler = async function (event) {
 
   const log = { at: new Date().toISOString() };
 
+  // 이번 감시에서 나간 알림들. recordWatch 가 한 번에 저장한다.
+  const dispatches = [];
+
   try {
     return await runCycle(event, log, 0);
   } catch (e) {
@@ -757,7 +772,7 @@ async function runCycle(event, log, round) {
         if (becameEffective.includes(p.label)) effAt[p.label] = p.at;
       }
       log.dispatch_effective = await dispatchEffective(becameEffective, effAt, event);
-      await logDispatch(log.dispatch_effective, "특보 발효", becameEffective.join(" · ") + " 발효", event);
+      logDispatch(dispatches, log.dispatch_effective, "특보 발효", becameEffective.join(" · ") + " 발효", becameEffective);
     }
 
     // 해제 예정이 새로 잡혔으면 1회 알린다.
@@ -772,25 +787,33 @@ async function runCycle(event, log, round) {
     if (prev && newReleases.length) {
       log.release_pending = newReleases.map((p) => `${p.label} ${fmtWhen(p.at)}`);
       log.dispatch_release_pending = await dispatchReleasePending(newReleases, event);
-      await logDispatch(
+      logDispatch(
+        dispatches,
         log.dispatch_release_pending,
-        "해제 예정",
+        "해제예정",
         newReleases.map((p) => p.label).join(" · ") + " 해제예정",
-        event
+        newReleases.map((p) => p.label)
       );
     }
 
     if (active) {
       log.dispatch = await dispatch(now, prev, event);
-      await logDispatch(log.dispatch, "강우 단계", now.label || now.level, event);
+      logDispatch(dispatches, log.dispatch, "강우 단계", now.label || now.level, []);
     } else if (wasActive) {
       log.dispatch = await dispatchClear(prev, event);
       log.cleared = true;
-      await logDispatch(log.dispatch, "상황 종료", "상황 종료", event);
+      logDispatch(dispatches, log.dispatch, "상황 종료", "상황 종료", []);
     } else if (warningsChanged) {
       log.dispatch = await dispatchWarningChange(now, prev, event);
       log.warning_change = true;
-      await logDispatch(log.dispatch, "특보 변동", (now.warnings || []).join(" · ") || "특보 변동", event);
+      logDispatch(
+        dispatches,
+        log.dispatch,
+        "특보 변동",
+        (now.warnings || []).join(" · ") || "특보 변동",
+        // 해제된 특보는 now.warnings 에 없다. 이전 목록과 합쳐야 집계에 잡힌다.
+        Array.from(new Set([...((prev && prev.warnings) || []), ...(now.warnings || [])]))
+      );
     } else {
       log.dispatch = { skipped: "평상시" };
     }
@@ -834,7 +857,7 @@ async function runCycle(event, log, round) {
           level: now.level,
           dispatch: log.dispatch,
           subscribers: log.subscribers,
-          acked: log.acked,
+          dispatches,
         },
         event
       );

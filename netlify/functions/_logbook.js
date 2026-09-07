@@ -152,7 +152,11 @@ function emptyDay(date) {
     // 푸시 집계.
     // events는 알림 건별 기록이다. 하루 단위 파일이므로 자정에 저절로 0에서 시작한다.
     //   { "<건 번호>": { kind, title, at, sent, acked } }
-    push: { sent: 0, acked: 0, subscribers: 0, byType: {}, events: {} },
+    //   byType    — 알림 종류별 집계 ("특보 변동", "강우 단계" …)
+    //   byWarning — 기상현상별 집계 ("강풍", "호우", "태풍" …)
+    //               알림 하나에 특보가 여럿이면 각각에 중복으로 센다.
+    //               따라서 byWarning 의 합계는 sent 와 일치하지 않는다.
+    push: { sent: 0, acked: 0, subscribers: 0, byType: {}, byWarning: {}, events: {} },
     // 단계·특보 변화 기록
     events: [],
     updated_at: kstStamp(),
@@ -197,10 +201,22 @@ async function writeDay(day, event) {
 
 // ---------- 기록 ----------
 
+// "강풍주의보" -> "강풍", "태풍경보" -> "태풍"
+// 등급을 떼어 기상현상만 남긴다. watch.js 의 parseGrade 와 같은 규칙이다.
+function warnFamily(label) {
+  return String(label || "").replace(/(주의보|경보)$/, "") || String(label || "");
+}
+
+// byType / byWarning 의 한 칸을 꺼낸다. 없으면 만든다.
+function bucket(map, key) {
+  if (!map[key]) map[key] = { sent: 0, acked: 0 };
+  return map[key];
+}
+
 /**
  * 감시 1회분을 기록한다. watch.js가 매분 호출한다.
  */
-async function recordWatch({ snap, warn, level, dispatch, subscribers, acked }, event) {
+async function recordWatch({ snap, warn, level, dispatch, subscribers, dispatches }, event) {
   const day = await readDay(event);
   const h = kstHour();
 
@@ -216,7 +232,33 @@ async function recordWatch({ snap, warn, level, dispatch, subscribers, acked }, 
   // 푸시 집계
   if (dispatch && dispatch.sent) day.push.sent += dispatch.sent;
   if (typeof subscribers === "number") day.push.subscribers = subscribers;
-  if (typeof acked === "number") day.push.acked = acked;
+  // acked 는 여기서 건드리지 않는다. recordAck 가 하루 내내 누적한다.
+  // 예전에는 매분 덮어썼는데, 상황이 끝나 ackRank 가 지워지면 그날 확인
+  // 기록이 통째로 0 으로 밀렸다.
+
+  // 이번에 나간 알림들을 건별로 남긴다. 저장이 한 번뿐이라 덮어쓰기가 없다.
+  if (!day.push.byType) day.push.byType = {};
+  if (!day.push.byWarning) day.push.byWarning = {};
+  if (!day.push.events) day.push.events = {};
+  for (const d of dispatches || []) {
+    if (!d || !d.eid) continue;
+    const prev = day.push.events[d.eid] || {};
+    day.push.events[d.eid] = {
+      kind: d.kind || prev.kind || "",
+      title: d.title || prev.title || "",
+      at: prev.at || kstStamp(),
+      sent: Number(d.sent) || prev.sent || 0,
+      acked: prev.acked || 0,
+      // 확인이 들어왔을 때 어느 칸을 올릴지 알아야 한다.
+      warnings: Array.isArray(d.warnings) ? d.warnings : prev.warnings || [],
+    };
+    if (prev.eid_counted) continue;
+    bucket(day.push.byType, d.kind || "기타").sent += Number(d.sent) || 0;
+    for (const fam of new Set((d.warnings || []).map(warnFamily))) {
+      if (fam) bucket(day.push.byWarning, fam).sent += Number(d.sent) || 0;
+    }
+    day.push.events[d.eid].eid_counted = true;
+  }
 
   // 단계·특보 변화만 사건으로 남긴다 (매분 기록하면 파일이 커진다)
   const last = day.events[day.events.length - 1];
@@ -293,11 +335,24 @@ async function recordAck(eid, event) {
   if (!day.push.events[eid]) {
     // 발송 기록보다 확인이 먼저 왔다. 빈 칸을 만들어 두면
     // 뒤이어 오는 발송 기록이 이름과 건수를 채운다.
-    day.push.events[eid] = { kind: "", title: "", at: kstStamp(), sent: 0, acked: 0 };
+    day.push.events[eid] = { kind: "", title: "", at: kstStamp(), sent: 0, acked: 0, warnings: [] };
   }
-  day.push.events[eid].acked += 1;
+  const rec = day.push.events[eid];
+  rec.acked += 1;
+
+  // 하루 누적. 상황이 끝나도 밀리지 않는다.
+  day.push.acked = (day.push.acked || 0) + 1;
+
+  // 종류별·현상별 확인 수
+  if (!day.push.byType) day.push.byType = {};
+  if (!day.push.byWarning) day.push.byWarning = {};
+  if (rec.kind) bucket(day.push.byType, rec.kind).acked += 1;
+  for (const fam of new Set((rec.warnings || []).map(warnFamily))) {
+    if (fam) bucket(day.push.byWarning, fam).acked += 1;
+  }
+
   await writeDay(day, event);
-  return day.push.events[eid].acked;
+  return rec.acked;
 }
 
 /**
