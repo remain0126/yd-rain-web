@@ -39,9 +39,13 @@ exports.handler = async function (event) {
       github_configured: logbook.configured(),
       date: day.date,
       visits: {
+        // total 은 자동 갱신을 포함한 호출 전체,
+        // entries 는 사람이 실제로 들어온 횟수다.
         total: day.visits.total,
+        entries: day.visits.entries || 0,
         unique: day.visits.uniq.length,
         byHour: day.visits.byHour,
+        byHourEntry: day.visits.byHourEntry || new Array(24).fill(0),
       },
       push: day.push,
       events: day.events,

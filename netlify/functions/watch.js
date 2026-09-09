@@ -255,15 +255,18 @@ function mm(v) {
 function buildPayload(now, prev, seq) {
   const lines = [];
 
+  // 기상특보를 먼저 적는다. 왜 알림이 왔는지가 특보 이름 한 줄로 드러나고,
+  // 관측 수치는 그 근거로 뒤에 붙는 편이 읽기 쉽다.
+  if (now.warnings.length) lines.push("기상특보 " + now.warnings.join(" · "));
+
   if (now.worstName && now.selfRank <= ALERT_FROM) {
     // 관측 지점 정보. 여러 곳이 동시에 위험하면 규모를 함께 알린다.
     let line = `${prettyName(now.worstName)} 1h ${mm(now.mm1)} · 3h ${mm(now.mm3)}mm`;
     if (now.elevatedCount > 1) line += `  (외 ${now.elevatedCount - 1}개소 관심단계↑)`;
     lines.push(line);
-    if (now.warnings.length) lines.push("기상특보 " + now.warnings.join(" · "));
   } else if (now.warnings.length) {
     // 비는 안 오는데 특보로 단계가 올라간 경우 — 왜 알림이 왔는지 한 줄로 밝힌다
-    lines.push("관내 강우 없음 · 기상특보 " + now.warnings.join(" · "));
+    lines.push("관내 강우 없음");
   }
 
   // 반복을 멈추는 방법을 알림에 명시한다.
@@ -507,17 +510,37 @@ async function dispatchWarningChange(now, prev, event) {
   const addedPending = added.some((t) => t.includes("발효"));
   const upPending = up.some((t) => t.includes("발효"));
 
-  // 발표와 동시에 발효된 것은 예고 도달 알림과 같은 문구로 적는다
+  // 문구 어순: 특보 이름을 앞에, 무슨 일이 있었는지를 뒤에 둔다.
+  // "해제 호우주의보" 보다 "호우주의보 해제" 가 읽기 쉽고, 알림 목록에서
+  // 특보 이름이 왼쪽에 정렬되어 훑어보기 좋다.
+  //
+  // 시각은 종류에 따라 출처가 다르다.
+  //   발효예정 — 기상청이 알려 준 발효 예정 시각
+  //   발효     — 지금 효력이 생긴 것이므로 현재 시각
+  //   상향·하향·해제 — 기상청은 변경 시각을 주지 않는다. 자료에서 사라지거나
+  //                  바뀐 것을 비교로 알아내므로, 확인한 시각을 적고
+  //                  "기준"이라고 밝혀 실제 발생 시각과 구분한다.
+  //                  감시가 1분 간격이라 오차는 1분 안쪽이다.
   const nowWhen = fmtWhen(Date.now());
-  const asEffective = (list) => list.map((l) => `${l} ${nowWhen} 발효되었습니다.`);
+  const seen = (s) => `${s} · ${nowWhen} 기준`;
 
   const lines = [];
-  if (up.length) lines.push((upPending ? "상향 발표 " : "상향 ") + up.join(" · "));
-  if (added.length) {
-    lines.push(addedPending ? "발표 " + added.join(" · ") : asEffective(added).join("\n"));
+  if (up.length) {
+    // 예고 건은 withWhen 이 이미 "· 시각 발효"를 붙여 두었으므로 "예정"만 잇는다.
+    // 화살표가 상향임을 보여 주니 "상향"이라는 말은 넣지 않는다.
+    lines.push(
+      up.map((t) => (upPending ? `${t} 예정` : seen(`${t} 상향`))).join("\n")
+    );
   }
-  if (down.length) lines.push("하향 " + down.join(" · "));
-  if (removed.length) lines.push("해제 " + removed.join(" · "));
+  if (added.length) {
+    lines.push(
+      added
+        .map((t) => (addedPending ? `${t} 예정` : `${t} · ${nowWhen} 발효`))
+        .join("\n")
+    );
+  }
+  if (down.length) lines.push(down.map((t) => seen(`${t} 하향`)).join("\n"));
+  if (removed.length) lines.push(removed.map((l) => seen(`${l} 해제`)).join("\n"));
   if (!lines.length) return { skipped: "변동 없음" };
 
   const title = up.length
@@ -565,9 +588,9 @@ async function dispatchEffective(labels, effAt, event) {
     {
       title: "영덕군 기상특보 발효",
       kind: "특보 발효",
-      // 발효 알림은 어느 경우든 같은 형식으로 적는다.
-      //   "폭염주의보 8월 30일(일) 11:00 발효되었습니다."
-      body: labels.map((l) => `${l} ${fmtWhen(effAt[l] || Date.now())} 발효되었습니다.`).join("\n"),
+      // 어순을 특보 변동 알림과 맞춘다.
+      //   "폭염주의보 · 8월 30일(일) 11:00 발효"
+      body: labels.map((l) => `${l} · ${fmtWhen(effAt[l] || Date.now())} 발효`).join("\n"),
       tag: `yd-rain-effective-${Date.now()}`,
       group: "yd-rain-warning",
       url: "/",
@@ -610,7 +633,7 @@ async function dispatchClear(prev, event) {
     subs,
     {
       title: "영덕군 상황 해제",
-      body: `${prev.label} 상황이 종료되었습니다.`,
+      body: `${prev.label} 종료 · ${fmtWhen(Date.now())} 기준`,
       tag: `yd-rain-alert-${Date.now()}`,
       group: "yd-rain-alert",
       url: "/",

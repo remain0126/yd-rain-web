@@ -118,7 +118,9 @@ exports.handler = async function (event) {
     (async () => {
       try {
         const vid = (event.queryStringParameters && event.queryStringParameters.v) || null;
-        if (vid) await logbook.recordVisit(vid, event);
+        // e=1 이면 사람이 실제로 들어온 것, 없으면 1분 자동 갱신이다.
+        const isEntry = !!(event.queryStringParameters && event.queryStringParameters.e === "1");
+        if (vid) await logbook.recordVisit(vid, event, isEntry);
       } catch (_) {}
     })(),
   ]);

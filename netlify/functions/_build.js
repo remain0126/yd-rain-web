@@ -28,14 +28,20 @@ async function buildData(persist = true, event = null, timeoutMs) {
   for (const [name, row] of Object.entries(data.rows)) {
     const w = windows[name] || {};
     const r1 = w.r1 ?? null;
-    const r3 = w.r3 ?? null;
-    const r12 = w.r12 ?? null;
+    // 창이 통째로 비었으면 합계 0 은 거짓이다. "비가 안 왔다"가 아니라
+    // "측정을 못 했다"이므로 null 로 넘겨 화면에서 -- 로 보이게 한다.
+    const r3 = w.missing3 >= 3 ? null : w.r3 ?? null;
+    const r12 = w.missing12 >= 12 ? null : w.r12 ?? null;
 
     const tier = classify(r1, r3, r12);
 
     row.recent_1h_mm = r1;
     row.recent_3h_mm = r3;
     row.recent_12h_mm = r12;
+    // 창 안의 빈 칸 개수. 화면에서 정상/일부결측/결측을 가르는 데 쓴다.
+    row.missing_1h = w.missing1 ?? 0;
+    row.missing_3h = w.missing3 ?? 0;
+    row.missing_12h = w.missing12 ?? 0;
     // 이력이 부족해 창이 불완전한 경우(도입 초기 등) 화면에 알릴 수 있도록 표시
     row.window_complete_3h = w.complete3 !== false;
     row.window_complete_12h = w.complete12 !== false;

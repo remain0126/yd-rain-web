@@ -123,25 +123,47 @@ async function readHistory(event) {
 /**
  * 최근 1/3/12시간 창을 계산한다.
  * 오늘 값은 rows에서 우선 사용하고, 창이 어제로 넘어가면 이력(hist)에서 가져온다.
+ *
+ * [기준 시각]
+ * 예전에는 지점마다 "그 지점의 마지막 값"에서 거꾸로 셌다. 그러면 자료가
+ * 끊긴 지점이 자기 마지막 값을 1시간 값으로 계속 내보내서, 센서가 죽어도
+ * 화면에는 정상으로 보였다. 실제로 영해면이 8시에서 멈췄는데 9시 45분에도
+ * "1시간 0mm"로 표시된 일이 있었다.
+ *
+ * 그래서 지금은 시계를 기준으로 삼는다. 모든 지점이 같은 시각을 본다.
+ * 표의 "HH시"는 (HH-1)~HH시 구간이므로, 지금 09:45 라면 마지막으로 다
+ * 채워졌어야 할 칸은 09시다. 10시 칸은 아직 진행 중이라 비어 있는 게 정상이다.
+ *
+ * 자료의 날짜가 오늘이 아니면(수집이 밀려 어제 자료를 들고 있는 경우)
+ * 시계를 기준으로 삼을 수 없으므로 예전 방식으로 돌아간다.
  */
 function computeWindows(hist, rows, dateLabel) {
   const today = extractDate(dateLabel);
   const result = {};
 
+  // KST 현재 시각 기준, 마지막으로 완료된 슬롯(1~24). 자정 직후면 0.
+  const kstNow = new Date(Date.now() + 9 * 3600 * 1000);
+  const p2 = (n) => String(n).padStart(2, "0");
+  const kstToday = `${kstNow.getUTCFullYear()}-${p2(kstNow.getUTCMonth() + 1)}-${p2(
+    kstNow.getUTCDate()
+  )}`;
+  const clockHH = today === kstToday ? kstNow.getUTCHours() : null;
+
   for (const [name, row] of Object.entries(rows)) {
     const h = hist[name] || {};
 
-    // 오늘 데이터가 있는 마지막 시각(1~24)
+    // 오늘 데이터가 있는 마지막 시각(1~24). 시계를 못 쓸 때만 사용한다.
     let lastHH = 0;
     for (let hh = 1; hh <= 24; hh++) {
       const col = String(hh).padStart(2, "0") + "시";
       if (row[col] !== null && row[col] !== undefined) lastHH = hh;
     }
 
-    // 기준 절대 슬롯: 오늘 lastHH시.
-    // 오늘 데이터가 아직 하나도 없으면(자정 직후) 어제 24시를 기준으로.
+    const baseHH = clockHH === null ? lastHH : clockHH;
+
+    // 기준 절대 슬롯. 기준 시각이 0이면(자정 직후) 어제 24시를 기준으로.
     const baseAbs =
-      lastHH > 0 ? absSlot(today, lastHH) : absSlot(today, 1) - 1; // 어제 24시
+      baseHH > 0 ? absSlot(today, baseHH) : absSlot(today, 1) - 1; // 어제 24시
 
     // 슬롯 값 조회: 오늘 범위면 rows에서, 아니면 이력에서
     const valueAt = (abs) => {
@@ -177,6 +199,12 @@ function computeWindows(hist, rows, dateLabel) {
       r1: w1,
       r3: w3.sum,
       r12: w12.sum,
+      // 빈 칸 개수. 0 이면 정상, 칸 수와 같으면 통째로 결측,
+      // 그 사이면 일부결측이다. 세 가지를 구분해야 "비가 안 왔다"와
+      // "측정을 못 했다"가 같은 0mm 로 보이지 않는다.
+      missing1: w1 === null ? 1 : 0,
+      missing3: w3.missing,
+      missing12: w12.missing,
       complete3: w3.missing === 0,
       complete12: w12.missing === 0,
     };

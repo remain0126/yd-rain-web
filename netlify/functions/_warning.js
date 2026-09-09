@@ -27,14 +27,45 @@ const AREA = "영덕";
 // 등급은 호우와 동일하게 맞추되(주의보급/경보급), 조치사항은 화면에서 강풍 전용으로 교체한다.
 // family: rain = 강우 조치사항 그대로 사용, wind = 강풍 전용 조치사항으로 교체
 // rank는 같은 등급이 겹칠 때의 우선순위다. 강우 앱이므로 태풍·호우가 강풍보다 앞선다.
+//
+// 폭염중대경보는 2026.6.1. 신설된 기상특보 최초의 '중대경보' 단계로,
+// 폭염 계열의 최상위다(폭염주의보 < 폭염경보 < 폭염중대경보).
+// 다만 이 앱의 본령은 강우 감시이므로 태풍·호우·강풍 경보급 뒤에 둔다.
+// 폭염주의보·폭염경보는 승격 대상이 아니며 알림으로만 나간다.
+// family: rain = 강우 조치사항 그대로, wind = 강풍 전용, heat = 폭염 전용
 const WATCH = {
   "태풍경보": { key: "critical", rank: 0, family: "rain" },
   "호우경보": { key: "critical", rank: 1, family: "rain" },
   "강풍경보": { key: "critical", rank: 2, family: "wind" },
-  "태풍주의보": { key: "high", rank: 3, family: "rain" },
-  "호우주의보": { key: "high", rank: 4, family: "rain" },
-  "강풍주의보": { key: "high", rank: 5, family: "wind" },
+  "폭염중대경보": { key: "critical", rank: 3, family: "heat" },
+  "태풍주의보": { key: "high", rank: 4, family: "rain" },
+  "호우주의보": { key: "high", rank: 5, family: "rain" },
+  "강풍주의보": { key: "high", rank: 6, family: "wind" },
 };
+
+// 해상예보구역. 풍랑특보는 "경상북도(영덕)"이 아니라 해상구역명으로
+// 발표되므로 육상 판정(areaIsUnder)에 걸리지 않는다. 영덕은 동해남부에
+// 속한다(동해중부는 강원 쪽이므로 "동해중부전해상"은 대상이 아니다).
+//
+// 통보문에서 이름이 두 갈래로 나온다.
+//   본문      — "풍랑주의보 : 동해남부앞바다, …"  (상위 구역명)
+//   특정관리해역 — "경북북부앞바다중 연안바다 풍랑주의보 발표"  (세부 구역명)
+// 둘 다 잡아야 하므로 상위·세부를 모두 넣는다.
+//
+// 알림만 보내고 위험 단계는 올리지 않는다(WATCH 에 넣지 않았다).
+// 폭염주의보·한파 등과 같은 취급이다.
+const SEA_AREAS = [
+  "동해남부전해상",
+  "동해남부앞바다",
+  "동해남부북쪽안쪽먼바다",
+  "경북북부앞바다",
+  "경북남부앞바다",
+];
+
+function seaAreaHit(line) {
+  const norm = String(line || "").replace(/\s+/g, "");
+  return SEA_AREAS.some((a) => norm.includes(a));
+}
 
 const TIMEOUT_MS = 6000;
 
@@ -134,16 +165,32 @@ function parseWarnings(text) {
 
   for (const raw of lines) {
     const line = raw.trim();
-    // 앞의 "o"는 기상청 통보문의 항목 기호
+    // 통보문에 두 가지 형식이 섞여 있다.
+    //   본문        "o 풍랑주의보 : 동해남부앞바다, …"      특보명 뒤에 지역
+    //   특정관리해역  "o 경북북부앞바다중 연안바다 풍랑주의보 발표"  지역 뒤에 특보명
+    // 앞의 "o"는 기상청 통보문의 항목 기호다.
+    // "풍랑예비특보"는 아직 발효가 아니므로 어느 쪽에도 걸리지 않는다.
+    let kind = null;
+    let body = null;
+
     const m = line.match(/^o?\s*([가-힣·]+(?:주의보|경보))\s*[:：]\s*(.+)$/);
-    if (!m) continue;
+    if (m) {
+      kind = m[1].trim();
+      body = m[2];
+    } else {
+      const s = line.match(/^o?\s*(.+?)\s*([가-힣]+(?:주의보|경보))\s*(?:발표|발효)$/);
+      if (s) {
+        kind = s[2].trim();
+        body = s[1];
+      }
+    }
+    if (!kind) continue;
 
-    const kind = m[1].trim();
-    const body = m[2];
+    // 육상은 "경상북도(영덕)", 해상은 "동해남부앞바다" 처럼 표기가 다르다.
+    if (!areaIsUnder(body, PROVINCE, AREA) && !seaAreaHit(body)) continue;
 
-    if (!areaIsUnder(body, PROVINCE, AREA)) continue;
-
-    hits.push(kind);
+    // 같은 특보가 본문과 특정관리해역에 겹쳐 나오므로 한 번만 담는다.
+    if (!hits.includes(kind)) hits.push(kind);
   }
 
   return hits;
@@ -284,17 +331,33 @@ async function fetchWarningTimes(timeoutMs) {
 
     for (let i = 0; i < areas.length; i++) {
       const body = areas[i].body;
-      // "폭염주의보 발표 : 경상북도(...)" → 특보명과 발표/해제 구분
-      const head = body.match(/^([가-힣·]+(?:주의보|경보))\s*(발표|해제|대치|변경)?\s*[:：]\s*(.+)$/);
-      if (!head) continue;
+      // 두 가지 형식을 모두 받는다.
+      //   "폭염주의보 발표 : 경상북도(...)"           특보명 뒤에 지역
+      //   "경북북부앞바다중 연안바다 풍랑주의보 발표"   지역 뒤에 특보명
+      // 뒤쪽은 특정관리해역 항목이라 콜론이 없다. 이것만 나오는 특보는
+      // 여기서 시각을 못 잡으면 감지 시각으로 대체되므로 함께 처리한다.
+      let kind = null;
+      let act = "발표";
+      let region = null;
 
-      const kind = head[1];
-      const act = head[2] || "발표";
-      const region = head[3];
+      const head = body.match(/^([가-힣·]+(?:주의보|경보))\s*(발표|해제|대치|변경)?\s*[:：]\s*(.+)$/);
+      if (head) {
+        kind = head[1];
+        act = head[2] || "발표";
+        region = head[3];
+      } else {
+        const sea = body.match(/^(.+?)\s*([가-힣]+(?:주의보|경보))\s*(발표|발효|해제)$/);
+        if (sea) {
+          region = sea[1];
+          kind = sea[2];
+          act = sea[3] === "해제" ? "해제" : "발표";
+        }
+      }
+      if (!kind) continue;
 
       if (act === "해제") continue; // 해제 건은 발효시각이 아니다
       if (times[kind]) continue; // 이미 더 최근 것을 잡았다
-      if (!areaIsUnder(region, PROVINCE, AREA)) continue;
+      if (!areaIsUnder(region, PROVINCE, AREA) && !seaAreaHit(region)) continue;
 
       // 같은 번호의 t3에서 발효시각을 찾고, 없으면 t5로 대체
       let tmEf = it.t5 || null;

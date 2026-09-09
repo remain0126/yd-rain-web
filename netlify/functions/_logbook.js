@@ -148,7 +148,15 @@ function emptyDay(date) {
     // 시간대별 강우 (지점별 배열, 인덱스 = 0~23시)
     rain: {},
     // 접속 집계
-    visits: { total: 0, byHour: new Array(24).fill(0), uniq: [] },
+    //   total  — 호출 전체 (1분 자동 갱신 포함)
+    //   entries— 사람이 실제로 들어온 횟수 (첫 진입·새로고침·화면 복귀)
+    visits: {
+      total: 0,
+      entries: 0,
+      byHour: new Array(24).fill(0),
+      byHourEntry: new Array(24).fill(0),
+      uniq: [],
+    },
     // 푸시 집계.
     // events는 알림 건별 기록이다. 하루 단위 파일이므로 자정에 저절로 0에서 시작한다.
     //   { "<건 번호>": { kind, title, at, sent, acked } }
@@ -278,14 +286,32 @@ async function recordWatch({ snap, warn, level, dispatch, subscribers, dispatche
 
 /**
  * 접속 1건을 기록한다. rainfall.js가 호출한다.
+ *
+ * total 은 호출 전체(자동 갱신 포함)이고, entries 는 사람이 실제로
+ * 들어온 횟수다. 앱을 켜두면 1분마다 자동 갱신이 돌기 때문에 둘을
+ * 합쳐 놓으면 기기 한 대가 하루 1,440건을 만들어 이용량을 알 수 없다.
+ * byHourEntry 는 entries 의 시간대별 분포다.
+ *
  * @param {string} visitorId 브라우저별 임의 식별자 (개인정보 아님)
+ * @param {boolean} isEntry  첫 진입·새로고침·화면 복귀면 true
  */
-async function recordVisit(visitorId, event) {
+async function recordVisit(visitorId, event, isEntry) {
   const day = await readDay(event);
   const h = kstHour();
 
   day.visits.total += 1;
   day.visits.byHour[h] += 1;
+
+  // 예전 파일에는 이 칸이 없다. 읽을 때 만들어 준다.
+  if (typeof day.visits.entries !== "number") day.visits.entries = 0;
+  if (!Array.isArray(day.visits.byHourEntry)) {
+    day.visits.byHourEntry = new Array(24).fill(0);
+  }
+  if (isEntry) {
+    day.visits.entries += 1;
+    day.visits.byHourEntry[h] += 1;
+  }
+
   if (visitorId && !day.visits.uniq.includes(visitorId)) {
     // 목록이 무한정 커지지 않도록 상한을 둔다
     if (day.visits.uniq.length < 500) day.visits.uniq.push(visitorId);
