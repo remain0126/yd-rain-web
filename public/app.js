@@ -1418,7 +1418,13 @@ function openWarnPopup(label) {
   const isAlert = /경보$/.test(label);
   const color = isAlert ? "#FF0033" : "#FFE600";
 
+  // 해상특보는 구역마다 따로 발표된다. 어느 바다가 걸린 건지 모르면
+  // 영덕과 관계있는 상황인지 판단할 수 없으므로 시각보다 먼저 보여 준다.
+  // 육상 특보에는 구역 정보가 없으므로 이 줄 자체가 나오지 않는다.
+  const seas = (w.seas && w.seas[label]) || [];
+
   const rows = [
+    ...(seas.length ? [["해역", seas.join(" · ")]] : []),
     ["발표", fmtKmaTm(t.tm_fc)],
     ["발효", fmtKmaTm(t.tm_ef)],
     // 해제 예정이 잡혀 있으면 함께 보여준다. 위의 발효는 이 특보가 처음
