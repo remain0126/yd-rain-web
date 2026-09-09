@@ -744,14 +744,25 @@ details[open] .chev { transform: rotate(180deg); }
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 14px;
   padding: 7px 0;
   border-top: 1px solid var(--border);
 }
-.wp-k { font-size: 0.76rem; color: var(--muted); }
-.wp-v { font-size: 0.88rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-/* 해상구역 이름은 길고 여러 개가 붙을 수 있어 줄바꿈을 허용한다.
-   시각처럼 짧은 값은 어차피 한 줄이라 영향이 없다. */
-.wp-v { text-align: right; word-break: keep-all; line-height: 1.45; }
+/* 라벨은 줄어들지 않게 고정한다. 값이 길면 flex 가 라벨까지 밀어붙여
+   "해역" 두 글자가 세로로 쪼개지는 일이 생긴다. */
+.wp-k { font-size: 0.76rem; color: var(--muted); flex: 0 0 auto; white-space: nowrap; }
+/* 값은 남는 폭을 다 쓰고 필요하면 여러 줄로 흐른다. 해상구역 이름은
+   길고 여러 개가 붙을 수 있다. 시각처럼 짧은 값은 어차피 한 줄이다. */
+.wp-v {
+  font-size: 0.88rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  word-break: keep-all;
+  line-height: 1.45;
+}
 .wp-note {
   margin-top: 9px;
   font-size: 0.7rem;
