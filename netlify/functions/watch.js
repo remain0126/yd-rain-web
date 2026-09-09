@@ -52,6 +52,43 @@ function blobStore(event) {
   }
 }
 
+// 같은 알림이 반복해서 나가는 것을 막는 마지막 방어선.
+//
+// 특보 알림은 상태가 "바뀌었을 때" 1회만 나가도록 되어 있다. 그런데
+// 직전 상태와의 비교가 어떤 이유로든 어긋나면 같은 변동이 매번 새로
+// 생긴 것처럼 잡혀 알림이 계속 쌓인다. 실제로 그런 일이 있었다.
+//
+// 종류별로 "마지막에 보낸 내용"을 하나씩만 들고 있다가, 이번에 보낼
+// 것이 그것과 같으면 내보내지 않는다. 시간 제한을 두지 않는다. 몇 시간
+// 뒤에 같은 상황이 또 잡혀도 그것 역시 중복이기 때문이다.
+//
+// 지문에는 확인 시각을 넣지 않는다. 매분 값이 달라져 매번 다른 알림으로
+// 보이기 때문이다. 대신 기상청이 정한 발효·해제 예정 시각은 넣는다.
+// 그 값은 상황이 이어지는 동안 고정이고, 별개의 상황끼리는 서로 다르다.
+// 덕분에 오늘 발효 → 해제 → 내일 다시 발효 같은 경우도 제대로 나간다.
+const SENT_KEY = "notify-sent";
+
+async function alreadySent(kind, sig, event) {
+  try {
+    const store = blobStore(event);
+    if (!store) return false;
+    const rec = await store.get(SENT_KEY, { type: "json" });
+    return !!(rec && rec[kind] === sig);
+  } catch (_) {
+    return false; // 확인이 안 되면 보내는 쪽을 택한다. 놓치는 것이 더 나쁘다.
+  }
+}
+
+async function markSent(kind, sig, event) {
+  try {
+    const store = blobStore(event);
+    if (!store) return;
+    const rec = (await store.get(SENT_KEY, { type: "json" })) || {};
+    rec[kind] = sig;
+    await store.setJSON(SENT_KEY, rec);
+  } catch (_) {}
+}
+
 
 // 저장된 강우 자료를 읽는다.
 //
@@ -557,6 +594,12 @@ async function dispatchWarningChange(now, prev, event) {
           ? "영덕군 기상특보 해제"
           : "영덕군 기상특보 변동";
 
+  // 지문은 "무엇이 어떻게 바뀌었는가"로만 만든다. 발효·해제 예고 시각은
+  // withWhen 이 이미 붙여 두었으므로 그대로 들어간다.
+  const sig = `${up.join(",")}|${added.join(",")}|${down.join(",")}|${removed.join(",")}`;
+  if (await alreadySent("변동", sig, event)) return { skipped: "직전과 같은 변동" };
+  await markSent("변동", sig, event);
+
   return sendMany(
     subs,
     {
@@ -582,6 +625,16 @@ async function dispatchEffective(labels, effAt, event) {
   if (!configured()) return { skipped: "VAPID 미설정" };
   const subs = await readSubs(event);
   if (!subs.length) return { skipped: "구독자 없음" };
+
+  // 발효 시각을 지문에 넣는다. 같은 특보라도 오늘 발효와 다음에 다시
+  // 발효되는 건은 기상청이 정한 시각이 달라 서로 구분된다.
+  const sig = labels
+    .slice()
+    .sort()
+    .map((l) => `${l}@${effAt[l] || 0}`)
+    .join(",");
+  if (await alreadySent("발효", sig, event)) return { skipped: "직전과 같은 발효" };
+  await markSent("발효", sig, event);
 
   return sendMany(
     subs,
@@ -609,6 +662,10 @@ async function dispatchReleasePending(items, event) {
   if (!configured()) return { skipped: "VAPID 미설정" };
   const subs = await readSubs(event);
   if (!subs.length) return { skipped: "구독자 없음" };
+
+  const sig = items.map((p) => `${p.label}@${p.at || 0}`).sort().join(",");
+  if (await alreadySent("해제예정", sig, event)) return { skipped: "직전과 같은 해제예정" };
+  await markSent("해제예정", sig, event);
 
   return sendMany(
     subs,
@@ -769,6 +826,24 @@ async function runCycle(event, log, round) {
       prev = store ? await store.get(WATCH_KEY, { type: "json" }) : null;
     } catch (_) {}
 
+    // 조회에 실패했으면 "특보 없음"이 아니라 "모름"이다.
+    //
+    // 예전에는 실패 시 목록이 빈 배열이 되어, 직전과 비교했을 때 모든
+    // 특보가 해제된 것처럼 보였다. 다음 감시에서 조회가 성공하면 다시
+    // 새로 발효된 것으로 잡혀 알림이 반복해서 나갔다. 감시가 1분 간격이라
+    // 조회가 간헐적으로 느려지기만 해도 같은 알림이 계속 쌓인다.
+    //
+    // 그래서 실패했을 때는 직전 상태를 그대로 이어받고, 이번 회차의
+    // 특보 변동 판정은 건너뛴다. 모를 때는 판단을 미루는 편이 안전하다.
+    const warnUnknown = !warn || !warn.ok;
+    if (warnUnknown && prev) {
+      now.warnings = Array.isArray(prev.warnings) ? prev.warnings : [];
+      now.pending = Array.isArray(prev.pending) ? prev.pending : [];
+      now.pendingSig = prev.pendingSig || pendingSig(now.pending);
+      log.warn_unknown = true;
+      log.warnings = now.warnings;
+    }
+
     // 4) 발송 판단
     //    - 관심단계 이상: 반복 알림(1분×15회 → 10분 간격)
     //    - 특보 목록 변동: 1회 알림 (폭염·한파 등 반복 대상이 아닌 특보 포함)
@@ -787,7 +862,7 @@ async function runCycle(event, log, round) {
       .filter((p) => now.warnings.includes(p.label))
       .map((p) => p.label);
 
-    if (becameEffective.length) {
+    if (becameEffective.length && !warnUnknown) {
       log.effective_now = becameEffective;
       // 각 특보의 발효시각을 함께 넘겨 문구에 적는다
       const effAt = {};
@@ -807,7 +882,7 @@ async function runCycle(event, log, round) {
       (p) => p.kind === "해제" && !beforePending.has(`해제|${p.label}|${p.at || 0}`)
     );
 
-    if (prev && newReleases.length) {
+    if (prev && newReleases.length && !warnUnknown) {
       log.release_pending = newReleases.map((p) => `${p.label} ${fmtWhen(p.at)}`);
       log.dispatch_release_pending = await dispatchReleasePending(newReleases, event);
       logDispatch(
@@ -826,7 +901,7 @@ async function runCycle(event, log, round) {
       log.dispatch = await dispatchClear(prev, event);
       log.cleared = true;
       logDispatch(dispatches, log.dispatch, "상황 종료", "상황 종료", []);
-    } else if (warningsChanged) {
+    } else if (warningsChanged && !warnUnknown) {
       log.dispatch = await dispatchWarningChange(now, prev, event);
       log.warning_change = true;
       logDispatch(
