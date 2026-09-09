@@ -743,7 +743,9 @@ details[open] .chev { transform: rotate(180deg); }
 .wp-row {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  /* 값이 여러 줄이 되면 baseline 은 라벨을 첫 줄에 붙여 버린다.
+     center 로 두면 두 줄이든 세 줄이든 라벨이 세로 가운데에 온다. */
+  align-items: center;
   gap: 14px;
   padding: 7px 0;
   border-top: 1px solid var(--border);
