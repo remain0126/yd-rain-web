@@ -108,6 +108,12 @@ const WIND_ACTIONS = {
   "강풍경보": ["시설물 피해 신고 급증 대비", "산불 확산 고위험 경계", "인접 센터 공조 태세 확인"],
 };
 
+// 폭염중대경보 전용 조치사항. 강우용("주민 즉각 대피 발령" 등)이 그대로
+// 나가면 상황과 맞지 않으므로 온열질환 대응으로 바꿔 준다.
+const HEAT_ACTIONS = {
+  "폭염중대경보": ["온열질환 구급 급증 대비", "무더위쉼터·취약계층 확인", "야외 활동 중단 안내"],
+};
+
 // 기상청이 실제 발효한 호우·태풍·강풍특보를 반영해 단계를 끌어올린다.
 // 자체 계산이 더 높으면(예: 극한호우) 자체 계산을 그대로 유지한다 → 어느 쪽도 놓치지 않는다.
 // 승격된 경우 배지 문구는 실제 특보명을 쓴다 (태풍경보를 "호우경보"로 표시하지 않기 위함).
@@ -121,6 +127,9 @@ function applyKmaLevel(worst) {
   if (w.level_family === "wind" && WIND_ACTIONS[w.level_label]) {
     raised.actions = WIND_ACTIONS[w.level_label];
   }
+  if (w.level_family === "heat" && HEAT_ACTIONS[w.level_label]) {
+    raised.actions = HEAT_ACTIONS[w.level_label];
+  }
   return raised;
 }
 
@@ -129,40 +138,65 @@ function renderCenters(rows) {
   const cards = CENTERS.map((c) => {
     let worst = NORMAL;
     let m1 = null, m3 = null, m12 = null;
-    let incomplete3 = false, incomplete12 = false;
+    let incomplete1 = false, incomplete3 = false, incomplete12 = false;
     const elevated = [];
+    // 자료가 아예 안 들어오는 읍면. 카드 아래에 이름을 띄운다.
+    const dark = [];
     c.towns.forEach((t) => {
       const r = rows[t];
-      if (!r) return;
+      if (!r) { dark.push(dn(t)); return; }
       const key = r.risk_key || "normal";
       const tier = key === "normal" ? NORMAL : TIERS.find((x) => x.key === key) || NORMAL;
       if ((RANK[tier.key] ?? 9) < (RANK[worst.key] ?? 9)) worst = tier;
       if (r.recent_1h_mm != null) m1 = m1 === null ? r.recent_1h_mm : Math.max(m1, r.recent_1h_mm);
       if (r.recent_3h_mm != null) m3 = m3 === null ? r.recent_3h_mm : Math.max(m3, r.recent_3h_mm);
       if (r.recent_12h_mm != null) m12 = m12 === null ? r.recent_12h_mm : Math.max(m12, r.recent_12h_mm);
-      if (r.window_complete_3h === false) incomplete3 = true;
-      if (r.window_complete_12h === false) incomplete12 = true;
+      // 빈 칸이 하나라도 있으면 일부결측이다. 관할 읍면 중 한 곳만
+      // 끊겨도 카드 값은 나머지 지점의 최댓값이므로, 그 사실을 알려야 한다.
+      if ((r.missing_1h ?? 0) > 0) incomplete1 = true;
+      if ((r.missing_3h ?? 0) > 0 || r.window_complete_3h === false) incomplete3 = true;
+      if ((r.missing_12h ?? 0) > 0 || r.window_complete_12h === false) incomplete12 = true;
+      if (isDark(r)) dark.push(dn(t));
       if (key !== "normal") elevated.push(dn(t));
     });
-    return { c, worst: applyKmaLevel(worst), m1, m3, m12, elevated, incomplete3, incomplete12 };
+    return { c, worst: applyKmaLevel(worst), m1, m3, m12, elevated, dark,
+             incomplete1, incomplete3, incomplete12 };
   });
 
   el.innerHTML = cards
-    .map(({ c, worst, m1, m3, m12, elevated, incomplete3, incomplete12 }) => {
+    .map(({ c, worst, m1, m3, m12, elevated, dark, incomplete1, incomplete3, incomplete12 }) => {
       const isNormal = worst.key === "normal";
       // 자체 강우 계산 기준으로 구분한다. 기상청 특보와 혼동되지 않도록
       // "특보 대상" 대신 관심지역 / 위험지역으로 표기한다.
       const areaLabel = RANK[worst.key] <= RANK.high ? "위험지역" : "관심지역";
       // 첫 진입에서 카드 위를 한 번 지나가는 빛. 평소에는 화면 밖에 숨어 있다.
       const sheen = `<span class="cc-sheen"></span>`;
+      // 관할 목록에서 끊긴 읍면만 붉게 표시한다. 별도 줄을 두는 것보다
+      // 어느 자리인지 바로 보이고 줄도 늘지 않는다.
+      const townsHtml = c.towns
+        .map((t) => {
+          const n = dn(t);
+          return dark.includes(n) ? `<b class="tw-dark">${n}(결측)</b>` : n;
+        })
+        .join(" · ");
+      // 단계가 오른 읍면이 있으면 예전처럼 그 줄만 띄운다.
       const townsLine = elevated.length
         ? `<div class="cc-towns">${areaLabel} <b>${elevated.join(" · ")}</b></div>`
-        : `<div class="cc-towns">관할 ${c.towns.map(dn).join(" · ")}</div>`;
+        : `<div class="cc-towns">관할 ${townsHtml}</div>`;
       const actionsLine = isNormal
         ? ""
         : `<div class="cc-actions">▸ ${worst.actions.join(" · ")}</div>`;
-      // 사용자가 정한 표시 원칙: 누적 산정에 필요한 시간대가 하나라도 없으면 0mm로 표시
-      const warnLine = "";
+      // 값이 null 이면 창이 통째로 비었다는 뜻이다. 0mm 가 아니라 -- 로 둔다.
+      const metric = (label, mm, partial) => {
+        const gone = mm == null;
+        const mark = gone
+          ? " <i class='mk-part'>결측</i>"
+          : partial
+          ? " <i class='mk-part'>일부결측</i>"
+          : "";
+        const val = gone ? "--" : fmtMm(mm) + (partial ? "<i class='mk-star'>*</i>" : "");
+        return `<div class="cc-metric${gone ? " gone" : ""}"><span class="k">${label}${mark}</span><span class="v">${val}</span></div>`;
+      };
       return `
         <div class="center-card ${isNormal ? "" : "elevated"}" style="--tier-color:${worst.color};">
           ${sheen}
@@ -172,13 +206,12 @@ function renderCenters(rows) {
           </div>
           ${warnChips()}
           <div class="cc-metrics">
-            <div class="cc-metric"><span class="k">1시간</span><span class="v">${fmtMm(m1)}</span></div>
-            <div class="cc-metric"><span class="k">3시간${incomplete3 ? " <i class='mk-part'>일부결측</i>" : ""}</span><span class="v">${fmtMm(m3)}${incomplete3 ? "<i class='mk-star'>*</i>" : ""}</span></div>
-            <div class="cc-metric"><span class="k">12시간${incomplete12 ? " <i class='mk-part'>일부결측</i>" : ""}</span><span class="v">${fmtMm(m12)}${incomplete12 ? "<i class='mk-star'>*</i>" : ""}</span></div>
+            ${metric("1시간", m1, incomplete1)}
+            ${metric("3시간", m3, incomplete3)}
+            ${metric("12시간", m12, incomplete12)}
           </div>
           ${townsLine}
           ${actionsLine}
-          ${warnLine}
         </div>`;
     })
     .join("");
@@ -223,6 +256,11 @@ function bar(pct, color) {
   );
 }
 
+// 자료가 끊긴 지점인지. 가장 최근 한 칸이 비어 있으면 지금 안 들어오는 것이다.
+function isDark(r) {
+  return r ? (r.missing_1h ?? 0) > 0 : true;
+}
+
 function renderRanking(rows) {
   const el = $("ranking");
   const items = EUPMYEON_ORDER.filter((n) => rows[n]).map((n) => {
@@ -233,6 +271,7 @@ function renderRanking(rows) {
       riskKey: r.risk_key || "normal",
       riskLabel: r.risk_label || "양호",
       riskColor: r.risk_color || NORMAL.color,
+      dark: isDark(r),
     };
   });
   items.sort((a, b) => (b.value || 0) - (a.value || 0));
@@ -254,10 +293,13 @@ function renderRanking(rows) {
         : "";
       // 단계가 오른 곳은 그 단계 색, 평상시는 강우량을 뜻하는 파랑.
       const barColor = it.riskKey !== "normal" ? it.riskColor : "#38bdf8";
+      // 자료가 끊긴 읍면은 이름을 붉게 하고 "결측" 표시를 붙인다.
+      // 강우량 0mm 와 자료 없음이 같아 보이면 안 되기 때문이다.
+      const darkMark = it.dark ? `<span class="rk-dark">결측</span>` : "";
       return `
-        <div class="rk-row">
+        <div class="rk-row${it.dark ? " dark" : ""}">
           <span class="rk-num" style="color:${rankColor};">${idx + 1}</span>
-          <span class="rk-name">${dn(it.name)}</span>
+          <span class="rk-name">${dn(it.name)}${darkMark}</span>
           <span class="rk-track">${bar(pct, barColor)}</span>
           ${badge}
           <span class="rk-val">${fmtMm(it.value)}</span>
@@ -739,7 +781,8 @@ function scheduleRetry(ms = 25000) {
   if (retryTimer) clearTimeout(retryTimer);
   retryTimer = setTimeout(() => {
     retryTimer = null;
-    load(false);
+    // 이미 센 접속의 재시도다. 다시 세면 한 번 들어온 것이 두 건이 된다.
+    load(false, false);
   }, ms);
 }
 
@@ -758,12 +801,22 @@ function visitorId() {
   }
 }
 
-async function load(force) {
+// force      : 서버에 새 수집을 요청한다 (사용자가 새로고침을 누른 경우)
+// countVisit : 사람이 실제로 들어온 것으로 센다 (e=1)
+//
+// 접속 집계는 두 칸으로 나뉜다.
+//   total   — 이 함수를 부른 횟수 전부. 1분 자동 갱신도 포함한다.
+//   entries — 사람이 실제로 들어온 횟수. e=1 을 붙였을 때만 오른다.
+// 앱을 켜두면 자동 갱신이 하루 1,440건을 만들기 때문에, 합쳐 놓으면
+// 이용량을 알 수 없어 둘을 따로 센다. v= 는 항상 붙인다. 안 붙이면
+// 서버가 집계 자체를 건너뛰어 total 과 순방문자 수까지 빠진다.
+async function load(force, countVisit) {
   const icon = $("refreshIcon");
   icon.classList.add("spin");
   try {
     const sep = force ? "?fresh=1&" : "?";
-    const url = "/api/rainfall" + sep + "v=" + visitorId() + "&_=" + Date.now();
+    const entry = countVisit ? "e=1&" : "";
+    const url = "/api/rainfall" + sep + "v=" + visitorId() + "&" + entry + "_=" + Date.now();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     let res;
@@ -830,7 +883,7 @@ async function load(force) {
 // 1분 자동 갱신은 같은 load()를 부르지만 introDone을 풀지 않아 조용히 바뀐다.
 $("refreshBtn").addEventListener("click", () => {
   introDone = false;
-  load(true);
+  load(true, true);
 });
 
 // 재방문이면 저장된 직전 데이터를 먼저 즉시 그려서 체감 속도 향상,
@@ -854,11 +907,13 @@ if (cached) {
   }, 700);
 }
 
-load();
+load(false, true);
 // 1분 주기 자동 새로고침.
 // 화면을 보지 않는 동안에는 멈추고, 다시 돌아오면 즉시 한 번 갱신한다.
 // (불필요한 호출을 줄이면서, 복귀 시점에는 최신 상태를 바로 보여주기 위함)
-let refreshTimer = setInterval(load, REFRESH_MS);
+// 접속 집계에는 넣지 않는다. 화면만 조용히 바꾸는 것이지 사람이 새로
+// 들어온 것이 아니다.
+let refreshTimer = setInterval(() => load(false, false), REFRESH_MS);
 
 // 앱을 열면 최근에 온 알림을 확인 처리한다.
 // 어느 알림인지는 서버가 최근 발송 기록으로 판단한다.
@@ -885,8 +940,9 @@ document.addEventListener("visibilitychange", () => {
     // 화면으로 돌아온 즉시 확인 처리한다. 자료 갱신을 기다리면
     // 그 사이 발송이 한 번 더 나갈 수 있다.
     if (typeof ackCurrent === "function" && curRank != null) ackCurrent(curRank);
-    load();
-    refreshTimer = setInterval(load, REFRESH_MS);
+    // 돌아온 것은 다시 접속한 것이므로 1건으로 센다.
+    load(false, true);
+    refreshTimer = setInterval(() => load(false, false), REFRESH_MS);
   }
 });
 
