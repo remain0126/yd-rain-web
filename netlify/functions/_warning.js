@@ -44,27 +44,64 @@ const WATCH = {
 };
 
 // 해상예보구역. 풍랑특보는 "경상북도(영덕)"이 아니라 해상구역명으로
-// 발표되므로 육상 판정(areaIsUnder)에 걸리지 않는다. 영덕은 동해남부에
-// 속한다(동해중부는 강원 쪽이므로 "동해중부전해상"은 대상이 아니다).
+// 발표되므로 육상 판정(areaIsUnder)에 걸리지 않는다.
 //
-// 통보문에서 이름이 두 갈래로 나온다.
-//   본문      — "풍랑주의보 : 동해남부앞바다, …"  (상위 구역명)
-//   특정관리해역 — "경북북부앞바다중 연안바다 풍랑주의보 발표"  (세부 구역명)
-// 둘 다 잡아야 하므로 상위·세부를 모두 넣는다.
-//
-// 알림만 보내고 위험 단계는 올리지 않는다(WATCH 에 넣지 않았다).
-// 폭염주의보·한파 등과 같은 취급이다.
+// 무조건 대상인 구역. "경북북부앞바다"는 "경북북부앞바다중 연안바다"까지
+// 함께 걸린다(앞부분이 같으므로).
 const SEA_AREAS = [
-  "동해남부전해상",
-  "동해남부앞바다",
-  "동해남부북쪽안쪽먼바다",
   "경북북부앞바다",
-  "경북남부앞바다",
+  "동해남부북쪽안쪽먼바다",
+  "동해남부북쪽바깥먼바다",
+  "동해전해상",
 ];
 
-function seaAreaHit(line) {
+// "동해남부앞바다"는 조건부다.
+//   동해남부앞바다              → 세부 구역을 안 밝혔으니 전체가 대상
+//   동해남부앞바다(경북북부앞바다, …) → 우리 바다가 들어 있으므로 대상
+//   동해남부앞바다(울산앞바다, …)     → 우리 바다가 아니므로 제외
+// 괄호로 세부 구역을 밝힌 경우에만 그 안을 따진다.
+const COND_AREA = "동해남부앞바다";
+const COND_REQUIRE = "경북북부앞바다";
+
+function condAreaHit(norm) {
+  let from = 0;
+  for (;;) {
+    const i = norm.indexOf(COND_AREA, from);
+    if (i < 0) return false;
+    const rest = norm.slice(i + COND_AREA.length);
+    if (!rest.startsWith("(")) return true; // 괄호 없음
+
+    // 괄호 짝을 맞춰 안쪽만 꺼낸다
+    let depth = 0;
+    let end = -1;
+    for (let j = 0; j < rest.length; j++) {
+      if (rest[j] === "(") depth++;
+      else if (rest[j] === ")") {
+        depth--;
+        if (depth === 0) {
+          end = j;
+          break;
+        }
+      }
+    }
+    const inner = end > 0 ? rest.slice(1, end) : rest;
+    if (inner.includes(COND_REQUIRE)) return true;
+    from = i + COND_AREA.length; // 다른 곳에 또 나올 수 있다
+  }
+}
+
+// 줄에 등장한 우리 대상 해상구역 이름을 모두 뽑는다.
+// 풍랑특보는 구역마다 따로 발표되므로, 어느 바다가 걸렸는지 알려야
+// 받는 사람이 실제 관계있는 상황인지 판단할 수 있다.
+function seaAreaNames(line) {
   const norm = String(line || "").replace(/\s+/g, "");
-  return SEA_AREAS.some((a) => norm.includes(a));
+  const found = SEA_AREAS.filter((a) => norm.includes(a));
+  if (condAreaHit(norm)) found.unshift(COND_AREA);
+  return found;
+}
+
+function seaAreaHit(line) {
+  return seaAreaNames(line).length > 0;
 }
 
 const TIMEOUT_MS = 6000;
@@ -162,6 +199,8 @@ function areaIsUnder(line, province, area) {
 function parseWarnings(text) {
   const lines = String(text || "").split(/\r?\n/);
   const hits = [];
+  // 특보명 → 해당 해상구역 목록. 육상 특보는 담기지 않는다.
+  const seas = {};
 
   for (const raw of lines) {
     const line = raw.trim();
@@ -187,13 +226,20 @@ function parseWarnings(text) {
     if (!kind) continue;
 
     // 육상은 "경상북도(영덕)", 해상은 "동해남부앞바다" 처럼 표기가 다르다.
-    if (!areaIsUnder(body, PROVINCE, AREA) && !seaAreaHit(body)) continue;
+    const areas = seaAreaNames(body);
+    if (!areaIsUnder(body, PROVINCE, AREA) && !areas.length) continue;
 
     // 같은 특보가 본문과 특정관리해역에 겹쳐 나오므로 한 번만 담는다.
     if (!hits.includes(kind)) hits.push(kind);
+
+    // 구역은 줄마다 다르므로 모두 모은다.
+    if (areas.length) {
+      if (!seas[kind]) seas[kind] = [];
+      for (const a of areas) if (!seas[kind].includes(a)) seas[kind].push(a);
+    }
   }
 
-  return hits;
+  return { hits, seas };
 }
 
 // 영덕에 걸린 특보 중 승격 대상(태풍·호우·강풍)만 골라 가장 높은 단계를 반환
@@ -522,7 +568,9 @@ async function getWarning(force = false, timeoutMs, event = "auto") {
     return failed; // 실패는 캐시하지 않는다
   }
 
-  const docHits = parseWarnings(raw.text);
+  const parsed = parseWarnings(raw.text);
+  const docHits = parsed.hits;
+  const seas = parsed.seas;
 
   // 발효시각 전에 사라진 특보는 붙잡아 둔다 (조기 해제 방지)
   let hits = docHits;
@@ -549,6 +597,7 @@ async function getWarning(force = false, timeoutMs, event = "auto") {
     tm_fc: raw.tm_fc,
     all: hits, // 영덕에 걸린 전체 특보 (폭염·강풍 등 포함)
     doc: docHits, // 기상청 문서에 그대로 적힌 목록
+    seas, // 해상특보의 대상 구역 { "풍랑경보": ["동해남부북쪽안쪽먼바다", …] }
     held, // 해제 예정이지만 발효시각까지 유지 중인 특보
     times, // 특보별 발표·발효 시각 { "폭염주의보": { tm_fc, tm_ef } }
     errors,
