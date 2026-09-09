@@ -772,9 +772,6 @@ exports.handler = async function (event) {
 
   const log = { at: new Date().toISOString() };
 
-  // 이번 감시에서 나간 알림들. recordWatch 가 한 번에 저장한다.
-  const dispatches = [];
-
   try {
     return await runCycle(event, log, 0);
   } catch (e) {
@@ -787,6 +784,15 @@ exports.handler = async function (event) {
 };
 
 async function runCycle(event, log, round) {
+  // 이번 감시에서 나간 알림들. recordWatch 가 한 번에 저장한다.
+  //
+  // 원래는 exports.handler 쪽에 선언되어 있었는데, 실제로 쓰는 자리는
+  // 이 함수 안이라 서로 다른 스코프였다. 알림이 나갈 때만 이 변수를
+  // 건드리므로 평소에는 드러나지 않다가, 발송이 시작되면 그 지점에서
+  // 함수가 죽었다. 죽으면 아래 상태 저장까지 못 가고, 다음 감시가
+  // 직전 상태를 모르니 같은 변동을 매번 새것으로 판정하게 된다.
+  const dispatches = [];
+
   {
     // 1) 강우 자료가 묵었으면 새로 수집
     const rs = rainStore(event);
