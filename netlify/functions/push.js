@@ -138,14 +138,20 @@ exports.handler = async function (event) {
       // 알림을 보고 들어온 것인지, 그냥 앱을 연 것인지 가른다.
       //
       // 단계가 함께 왔거나(알림의 확인 버튼·본문 탭·앱 안의 확인),
+      // 알림 번호가 실려 왔거나(알림 누르기·지우기),
       // 최근에 이 기기로 알림이 나갔으면 알림을 보고 들어온 것으로 본다.
-      // 비 안 오는 날 그냥 앱을 열어본 기기는 여기에 걸리지 않는다.
+      //
+      // 앱을 연 것(ack_open)도 확인으로 친다. 알림을 지우거나 누르지 않고
+      // 앱에서 바로 상황을 확인하는 경우가 많기 때문이다. 그날 나간 알림이
+      // 없으면 아래 targets 가 비므로 그냥 앱을 열어본 날은 아무것도 세지 않는다.
       //
       // 예전에는 단계가 없으면 기본값 3을 넣었다. 그래서 앱을 한 번 열기만
       // 해도 "관심단계까지 확인함"이 되어, dispatch()의
       //   if (s.ackRank != null && now.rank >= s.ackRank) continue;
       // 조건에 걸려 관심단계 알림이 영영 나가지 않았다.
-      const fromAlert = hasRank || !!body.eid || gotAlert;
+      // 지금은 단계를 건드리지 않으므로 반복 알림에는 영향이 없다.
+      const isOpen = body.action === "ack_open";
+      const fromAlert = hasRank || !!body.eid || gotAlert || isOpen;
 
       // 반복을 멈출 단계. 단계는 숫자가 작을수록 심각하다.
       let rank = null;
