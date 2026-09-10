@@ -1,6 +1,6 @@
 // service worker: 앱 셸(정적 파일)만 캐시. 강우 데이터(/api/rainfall)는
 // 항상 네트워크에서 최신으로 받아온다 (재난 대응 특성상 실시간이 중요).
-const CACHE = "yd-rain-v41";
+const CACHE = "yd-rain-v42";
 const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/logo.png", "/logo.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -70,7 +70,10 @@ self.addEventListener("push", (e) => {
       ? [700, 150, 700, 150, 700, 150, 700, 150, 700, 150, 700, 150, 700]
       : [500, 200, 500, 200, 500, 200, 500],
     actions: d.key ? [{ action: "ack", title: "확인" }] : [],
-    data: { url: d.url || "/", key: d.key || null, rank: d.rank, group },
+    // eid 는 이 알림의 고유 번호다. 확인 신호에 실어 돌려보내야 서버가
+    // "어느 알림을 봤는지" 셀 수 있다. 특보 변동처럼 key(반복 중지용)가
+    // 없는 알림은 eid 마저 빠지면 확인이 통째로 집계되지 않는다.
+    data: { url: d.url || "/", key: d.key || null, eid: d.eid || null, rank: d.rank, group },
   };
 
   e.waitUntil(
@@ -100,6 +103,7 @@ function ackFromSW(data) {
           action: "ack",
           endpoint: sub.endpoint,
           key: data.key,
+          eid: data.eid,
           rank: data.rank,
         }),
       });
