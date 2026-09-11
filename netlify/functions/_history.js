@@ -127,41 +127,55 @@ async function readHistory(event) {
  * [기준 시각]
  * 예전에는 지점마다 "그 지점의 마지막 값"에서 거꾸로 셌다. 그러면 자료가
  * 끊긴 지점이 자기 마지막 값을 1시간 값으로 계속 내보내서, 센서가 죽어도
- * 화면에는 정상으로 보였다. 실제로 영해면이 8시에서 멈췄는데 9시 45분에도
- * "1시간 0mm"로 표시된 일이 있었다.
+ * 화면에는 정상으로 보였다.
  *
- * 그래서 지금은 시계를 기준으로 삼는다. 모든 지점이 같은 시각을 본다.
- * 표의 "HH시"는 (HH-1)~HH시 구간이므로, 지금 09:45 라면 마지막으로 다
- * 채워졌어야 할 칸은 09시다. 10시 칸은 아직 진행 중이라 비어 있는 게 정상이다.
+ * 그 다음에는 시계를 기준으로 삼았는데 이번엔 한 시간이 뒤처졌다. 군청은
+ * 진행 중인 시간대도 실시간으로 값을 올린다. 10시 28분에 이미 "11시" 칸에
+ * 0.0 이 들어와 있다. 시계로 10시 칸만 보면, 11시 칸이 빠진 지점을 놓친다.
  *
- * 자료의 날짜가 오늘이 아니면(수집이 밀려 어제 자료를 들고 있는 경우)
- * 시계를 기준으로 삼을 수 없으므로 예전 방식으로 돌아간다.
+ * 그래서 지금은 "모든 지점을 통틀어 가장 최근 칸"을 기준으로 삼는다.
+ * 한 곳이라도 값을 올린 시각이면 나머지도 올렸어야 하므로, 빠진 지점은
+ * 결측이 맞다. 모든 지점이 같은 시각을 보는 점은 그대로다.
+ *
+ * 시계는 상한으로만 쓴다. 군청이 실수로 미래 칸을 채워도 따라가지 않는다.
  */
 function computeWindows(hist, rows, dateLabel) {
   const today = extractDate(dateLabel);
   const result = {};
+  const col = (hh) => String(hh).padStart(2, "0") + "시";
+  const has = (row, hh) => row[col(hh)] !== null && row[col(hh)] !== undefined;
 
-  // KST 현재 시각 기준, 마지막으로 완료된 슬롯(1~24). 자정 직후면 0.
+  // KST 현재 시각. 자료 날짜가 오늘이 아니면 상한을 두지 않는다.
   const kstNow = new Date(Date.now() + 9 * 3600 * 1000);
   const p2 = (n) => String(n).padStart(2, "0");
   const kstToday = `${kstNow.getUTCFullYear()}-${p2(kstNow.getUTCMonth() + 1)}-${p2(
     kstNow.getUTCDate()
   )}`;
-  const clockHH = today === kstToday ? kstNow.getUTCHours() : null;
+  // 진행 중인 칸까지 인정하되, 정각 직후 5분은 기다린다.
+  //
+  // 09:00~10:00 구간은 "10시" 칸이고, 군청은 그 칸을 10시가 되는 순간부터
+  // 실시간으로 채운다. 다만 지점마다 올라오는 시각이 몇 분씩 어긋난다.
+  // 정각에 바로 새 칸을 기준으로 삼으면, 아직 안 올라온 지점이 잠깐
+  // 결측으로 떴다가 사라지기를 반복한다.
+  //
+  // 그래서 정각 후 5분이 지나야 새 칸을 기준에 넣는다. 그 안에는 직전
+  // 칸까지만 본다. 실제 고장은 5분 뒤에 잡히므로 놓치지 않는다.
+  const GRACE_MIN = 5;
+  const inGrace = kstNow.getUTCMinutes() < GRACE_MIN;
+  const cap = today === kstToday ? kstNow.getUTCHours() + (inGrace ? 0 : 1) : 24;
+
+  // 전 지점을 통틀어 값이 들어온 가장 늦은 시각
+  let baseHH = 0;
+  for (const row of Object.values(rows)) {
+    for (let hh = 1; hh <= Math.min(24, cap); hh++) {
+      if (has(row, hh) && hh > baseHH) baseHH = hh;
+    }
+  }
 
   for (const [name, row] of Object.entries(rows)) {
     const h = hist[name] || {};
 
-    // 오늘 데이터가 있는 마지막 시각(1~24). 시계를 못 쓸 때만 사용한다.
-    let lastHH = 0;
-    for (let hh = 1; hh <= 24; hh++) {
-      const col = String(hh).padStart(2, "0") + "시";
-      if (row[col] !== null && row[col] !== undefined) lastHH = hh;
-    }
-
-    const baseHH = clockHH === null ? lastHH : clockHH;
-
-    // 기준 절대 슬롯. 기준 시각이 0이면(자정 직후) 어제 24시를 기준으로.
+    // 기준 절대 슬롯. 오늘 자료가 하나도 없으면 어제 24시를 기준으로.
     const baseAbs =
       baseHH > 0 ? absSlot(today, baseHH) : absSlot(today, 1) - 1; // 어제 24시
 
