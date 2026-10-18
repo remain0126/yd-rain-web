@@ -2,7 +2,7 @@
 // 전체 파이프라인: 영덕군청 긁기 -> 시간별 이력 병합/저장 -> 최근 1/3/12시간 창 계산
 // -> 강우 단계 판정. rainfall.js와 scheduled-refresh.js가 공유한다.
 
-const { scrape } = require("./_scrape");
+const { scrape, parse } = require("./_scrape");
 const { mergeHistory, readHistory, computeWindows } = require("./_history");
 const { classify, tiersForClient, NORMAL } = require("./_tiers");
 const { getWarning } = require("./_warning");
@@ -15,7 +15,24 @@ const { getWarning } = require("./_warning");
  */
 async function buildData(persist = true, event = null, timeoutMs) {
   const data = await scrape(timeoutMs);
+  return finishBuild(data, persist, event);
+}
 
+/**
+ * 외부(소방서 PC 등)가 직접 긁어 보낸 영덕군청 HTML을 받아 처리한다.
+ * 영덕군청이 클라우드 IP를 차단해 Netlify에서 직접 긁을 수 없을 때,
+ * 국내 IP(PC)가 대신 긁어 HTML을 전달하면 그 뒤 처리는 기존과 완전히 동일하다.
+ * @param {string} html 영덕군청 강우량 페이지 원본 HTML
+ */
+async function buildDataFromHtml(html, persist = true, event = null) {
+  const data = parse(html);
+  data.fetched_at = new Date().toISOString();
+  return finishBuild(data, persist, event);
+}
+
+// scrape/parse 이후의 공통 처리(이력 병합·창 계산·단계 판정·기상특보).
+// buildData와 buildDataFromHtml이 공유한다 — 데이터 출처만 다를 뿐 결과는 동일.
+async function finishBuild(data, persist, event) {
   let hist;
   if (persist) {
     hist = await mergeHistory(data.rows, data.date_label, event);
@@ -66,4 +83,4 @@ async function buildData(persist = true, event = null, timeoutMs) {
   return data;
 }
 
-module.exports = { buildData };
+module.exports = { buildData, buildDataFromHtml };
