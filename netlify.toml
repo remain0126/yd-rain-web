@@ -55,6 +55,12 @@
   to = "/.netlify/functions/push"
   status = 200
 
+# 소방서 PC가 영덕군청 HTML을 올리는 경로 (방화벽 차단 우회용 중계)
+[[redirects]]
+  from = "/api/ingest"
+  to = "/.netlify/functions/ingest"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
