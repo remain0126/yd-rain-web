@@ -1302,7 +1302,18 @@ async function togglePush() {
       const res = await fetch("/api/push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "test", endpoint: sub.endpoint }),
+        // [진단] 어느 브라우저·어떤 상태에서 누른 시험인지 함께 보낸다
+        body: JSON.stringify({
+          action: "test",
+          endpoint: sub.endpoint,
+          diag: {
+            ua: navigator.userAgent,
+            standalone: typeof isStandalone !== "undefined" ? !!isStandalone : null,
+            perm: "Notification" in window ? Notification.permission : "?",
+            sw: navigator.serviceWorker && navigator.serviceWorker.controller
+              ? navigator.serviceWorker.controller.state : "없음",
+          },
+        }),
       }).then((r) => r.json()).catch(() => null);
       note(res && res.ok && res.sent > 0
         ? "시험 알림을 보냈습니다."

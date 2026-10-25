@@ -1,6 +1,6 @@
 // service worker: 앱 셸(정적 파일)만 캐시. 강우 데이터(/api/rainfall)는
 // 항상 네트워크에서 최신으로 받아온다 (재난 대응 특성상 실시간이 중요).
-const CACHE = "yd-rain-v42";
+const CACHE = "yd-rain-v43";
 const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/logo.png", "/logo.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -76,6 +76,25 @@ self.addEventListener("push", (e) => {
     data: { url: d.url || "/", key: d.key || null, eid: d.eid || null, rank: d.rank, group },
   };
 
+  // [진단] 푸시가 서비스워커까지 왔는지, 띄우는 데 성공했는지 서버에 남긴다.
+  const report = (r) =>
+    self.registration.pushManager
+      .getSubscription()
+      .then((sub) =>
+        fetch("/api/push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(Object.assign({
+            action: "recv",
+            endpoint: sub ? sub.endpoint : null,
+            eid: d.eid || null,
+            ua: self.navigator.userAgent,
+            perm: self.Notification ? self.Notification.permission : "?",
+          }, r)),
+        })
+      )
+      .catch(() => {});
+
   e.waitUntil(
     self.registration
       .getNotifications()
@@ -86,6 +105,16 @@ self.addEventListener("push", (e) => {
       })
       .catch(() => {})
       .then(() => self.registration.showNotification(title, options))
+      .then(() => report({ step: "shown" }))
+      // 브라우저가 옵션을 거부하면 최소 옵션으로 한 번 더 띄운다
+      .catch((err1) =>
+        self.registration
+          .showNotification(title, { body: options.body, tag: options.tag, data: options.data })
+          .then(() => report({ step: "fallback", err: String((err1 && err1.message) || err1) }))
+          .catch((err2) =>
+            report({ step: "fail", err: String((err1 && err1.message) || err1) + " / " + String((err2 && err2.message) || err2) })
+          )
+      )
   );
 });
 
