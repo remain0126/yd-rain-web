@@ -29,11 +29,59 @@ function reply(statusCode, body) {
   return { statusCode, headers: JSON_HEADERS, body: JSON.stringify(body) };
 }
 
+// [진단] 수신 기록 저장소. 구독 명단과 다른 키에 둔다.
+const RECV_KEY = "push-recv-log";
+function diagStore(event) {
+  try {
+    const blobs = require("@netlify/blobs");
+    if (event && typeof blobs.connectLambda === "function") blobs.connectLambda(event);
+    return blobs.getStore("rainfall-history");
+  } catch (_) {
+    return null;
+  }
+}
+
+function shortUa(ua) {
+  ua = ua || "";
+  return (/SamsungBrowser\/[\d.]+/.exec(ua) || /Chrome\/[\d.]+/.exec(ua) || [ua || null])[0];
+}
+
+async function diagLog(e, event) {
+  const st = diagStore(event);
+  if (!st) return;
+  let list = [];
+  try { list = (await st.get(RECV_KEY, { type: "json" })) || []; } catch (_) {}
+  list.push({
+    at: new Date(Date.now() + 9 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 19),
+    step: e.step,
+    sub: e.sub ? require("crypto").createHash("sha1").update(e.sub).digest("hex").slice(0, 8) : null,
+    host: e.sub ? (() => { try { return new URL(e.sub).host; } catch (_) { return "?"; } })() : null,
+    browser: shortUa(e.ua),
+    standalone: e.standalone == null ? undefined : e.standalone,
+    perm: e.perm || undefined,
+    sw: e.sw || undefined,
+    eid: e.eid || undefined,
+    result: e.result || undefined,
+    err: e.err || undefined,
+  });
+  try { await st.setJSON(RECV_KEY, list.slice(-30)); } catch (_) {}
+}
+
 exports.handler = async function (event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers: JSON_HEADERS, body: "" };
 
   // 화면이 구독을 시작하려면 공개키가 필요하다
   if (event.httpMethod === "GET") {
+    // [진단] 수신 기록 보기: /api/push?recv=1&token=WATCH_TOKEN
+    const q = event.queryStringParameters || {};
+    if (q.recv) {
+      const need = process.env.WATCH_TOKEN;
+      if (need && q.token !== need) return reply(401, { ok: false, error: "인증 실패" });
+      const st = diagStore(event);
+      let list = [];
+      try { list = (await st.get(RECV_KEY, { type: "json" })) || []; } catch (_) {}
+      return reply(200, { ok: true, count: list.length, recv: list.slice().reverse() });
+    }
     return reply(200, {
       ok: true,
       configured: configured(),
@@ -98,6 +146,19 @@ exports.handler = async function (event) {
         saved,
         ack_ranks: list.map((s) => (s.ackRank == null ? "-" : s.ackRank)).join(","),
       });
+    }
+
+    // [진단] 서비스워커가 푸시를 받은 순간 보내는 신호. 최근 30건만 보관.
+    if (body.action === "recv") {
+      await diagLog({
+        step: "수신:" + (body.step || "?"),
+        sub: body.endpoint,
+        err: body.err,
+        eid: body.eid,
+        perm: body.perm,
+        ua: body.ua,
+      }, event);
+      return reply(200, { ok: true });
     }
 
     if (body.action === "unsubscribe") {
@@ -232,6 +293,18 @@ exports.handler = async function (event) {
         },
         event
       );
+      const dg = body.diag || {};
+      await diagLog({
+        step: "시험발송",
+        sub: body.endpoint,
+        ua: dg.ua,
+        standalone: dg.standalone,
+        perm: dg.perm,
+        sw: dg.sw,
+        eid: r.eid,
+        result: r.sent ? "푸시서버 접수" : "실패",
+        err: (r.errors && r.errors[0]) || undefined,
+      }, event);
       return reply(200, { ok: true, ...r });
     }
 
